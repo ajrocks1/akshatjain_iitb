@@ -1,0 +1,912 @@
+[
+  {
+    "text": "Particulars",
+    "conf": 96.0,
+    "left": 27,
+    "top": 36,
+    "width": 108,
+    "height": 29,
+    "right": 135,
+    "bottom": 65
+  },
+  {
+    "text": "Date",
+    "conf": 96.0,
+    "left": 555,
+    "top": 31,
+    "width": 45,
+    "height": 16,
+    "right": 600,
+    "bottom": 47
+  },
+  {
+    "text": "Qty",
+    "conf": 45.0,
+    "left": 878,
+    "top": 25,
+    "width": 34,
+    "height": 20,
+    "right": 912,
+    "bottom": 45
+  },
+  {
+    "text": "Amount",
+    "conf": 96.0,
+    "left": 990,
+    "top": 18,
+    "width": 81,
+    "height": 29,
+    "right": 1071,
+    "bottom": 47
+  },
+  {
+    "text": "Total",
+    "conf": 96.0,
+    "left": 1180,
+    "top": 15,
+    "width": 48,
+    "height": 29,
+    "right": 1228,
+    "bottom": 44
+  },
+  {
+    "text": "CONSULTATION",
+    "conf": 96.0,
+    "left": 28,
+    "top": 99,
+    "width": 162,
+    "height": 19,
+    "right": 190,
+    "bottom": 118
+  },
+  {
+    "text": "Consultation",
+    "conf": 96.0,
+    "left": 32,
+    "top": 147,
+    "width": 117,
+    "height": 18,
+    "right": 149,
+    "bottom": 165
+  },
+  {
+    "text": "(Dr.",
+    "conf": 96.0,
+    "left": 157,
+    "top": 146,
+    "width": 32,
+    "height": 20,
+    "right": 189,
+    "bottom": 166
+  },
+  {
+    "text": "Neo",
+    "conf": 96.0,
+    "left": 197,
+    "top": 145,
+    "width": 38,
+    "height": 16,
+    "right": 235,
+    "bottom": 161
+  },
+  {
+    "text": "Church",
+    "conf": 96.0,
+    "left": 242,
+    "top": 143,
+    "width": 68,
+    "height": 17,
+    "right": 310,
+    "bottom": 160
+  },
+  {
+    "text": "Tharsis(Diabetologist,",
+    "conf": 91.0,
+    "left": 317,
+    "top": 140,
+    "width": 207,
+    "height": 22,
+    "right": 524,
+    "bottom": 162
+  },
+  {
+    "text": "25/09/2025",
+    "conf": 94.0,
+    "left": 545,
+    "top": 137,
+    "width": 106,
+    "height": 17,
+    "right": 651,
+    "bottom": 154
+  },
+  {
+    "text": "4",
+    "conf": 96.0,
+    "left": 903,
+    "top": 132,
+    "width": 11,
+    "height": 15,
+    "right": 914,
+    "bottom": 147
+  },
+  {
+    "text": "1000.00",
+    "conf": 95.0,
+    "left": 998,
+    "top": 129,
+    "width": 74,
+    "height": 17,
+    "right": 1072,
+    "bottom": 146
+  },
+  {
+    "text": "4000.00",
+    "conf": 96.0,
+    "left": 1154,
+    "top": 127,
+    "width": 76,
+    "height": 16,
+    "right": 1230,
+    "bottom": 143
+  },
+  {
+    "text": "General",
+    "conf": 93.0,
+    "left": 18,
+    "top": 178,
+    "width": 75,
+    "height": 18,
+    "right": 93,
+    "bottom": 196
+  },
+  {
+    "text": "Medicine))",
+    "conf": 92.0,
+    "left": 101,
+    "top": 176,
+    "width": 98,
+    "height": 20,
+    "right": 199,
+    "bottom": 196
+  },
+  {
+    "text": "INVESTIGATION",
+    "conf": 95.0,
+    "left": 30,
+    "top": 224,
+    "width": 162,
+    "height": 20,
+    "right": 192,
+    "bottom": 244
+  },
+  {
+    "text": "CHARGES",
+    "conf": 95.0,
+    "left": 200,
+    "top": 222,
+    "width": 106,
+    "height": 18,
+    "right": 306,
+    "bottom": 240
+  },
+  {
+    "text": "RENAL",
+    "conf": 95.0,
+    "left": 35,
+    "top": 275,
+    "width": 69,
+    "height": 16,
+    "right": 104,
+    "bottom": 291
+  },
+  {
+    "text": "FUNCTION",
+    "conf": 96.0,
+    "left": 111,
+    "top": 272,
+    "width": 107,
+    "height": 18,
+    "right": 218,
+    "bottom": 290
+  },
+  {
+    "text": "TEST",
+    "conf": 96.0,
+    "left": 226,
+    "top": 271,
+    "width": 54,
+    "height": 17,
+    "right": 280,
+    "bottom": 288
+  },
+  {
+    "text": "(RFT)",
+    "conf": 95.0,
+    "left": 287,
+    "top": 270,
+    "width": 55,
+    "height": 21,
+    "right": 342,
+    "bottom": 291
+  },
+  {
+    "text": "25/09/2025",
+    "conf": 96.0,
+    "left": 548,
+    "top": 264,
+    "width": 106,
+    "height": 17,
+    "right": 654,
+    "bottom": 281
+  },
+  {
+    "text": "1",
+    "conf": 94.0,
+    "left": 907,
+    "top": 259,
+    "width": 6,
+    "height": 15,
+    "right": 913,
+    "bottom": 274
+  },
+  {
+    "text": "240.00",
+    "conf": 96.0,
+    "left": 1011,
+    "top": 256,
+    "width": 64,
+    "height": 17,
+    "right": 1075,
+    "bottom": 273
+  },
+  {
+    "text": "240.00",
+    "conf": 96.0,
+    "left": 1169,
+    "top": 253,
+    "width": 64,
+    "height": 17,
+    "right": 1233,
+    "bottom": 270
+  },
+  {
+    "text": "ELECTROLYTES",
+    "conf": 96.0,
+    "left": 36,
+    "top": 310,
+    "width": 164,
+    "height": 19,
+    "right": 200,
+    "bottom": 329
+  },
+  {
+    "text": "25/09/2025",
+    "conf": 96.0,
+    "left": 549,
+    "top": 301,
+    "width": 105,
+    "height": 18,
+    "right": 654,
+    "bottom": 319
+  },
+  {
+    "text": "1",
+    "conf": 96.0,
+    "left": 908,
+    "top": 296,
+    "width": 6,
+    "height": 16,
+    "right": 914,
+    "bottom": 312
+  },
+  {
+    "text": "450.00",
+    "conf": 96.0,
+    "left": 1011,
+    "top": 294,
+    "width": 65,
+    "height": 16,
+    "right": 1076,
+    "bottom": 310
+  },
+  {
+    "text": "450.00",
+    "conf": 96.0,
+    "left": 1169,
+    "top": 291,
+    "width": 64,
+    "height": 16,
+    "right": 1233,
+    "bottom": 307
+  },
+  {
+    "text": "URINE",
+    "conf": 95.0,
+    "left": 37,
+    "top": 348,
+    "width": 64,
+    "height": 17,
+    "right": 101,
+    "bottom": 365
+  },
+  {
+    "text": "COMPLETE",
+    "conf": 95.0,
+    "left": 108,
+    "top": 345,
+    "width": 115,
+    "height": 18,
+    "right": 223,
+    "bottom": 363
+  },
+  {
+    "text": "ANALYSIS",
+    "conf": 96.0,
+    "left": 229,
+    "top": 343,
+    "width": 103,
+    "height": 18,
+    "right": 332,
+    "bottom": 361
+  },
+  {
+    "text": "25/09/2025",
+    "conf": 95.0,
+    "left": 549,
+    "top": 337,
+    "width": 106,
+    "height": 18,
+    "right": 655,
+    "bottom": 355
+  },
+  {
+    "text": "1",
+    "conf": 51.0,
+    "left": 908,
+    "top": 332,
+    "width": 7,
+    "height": 16,
+    "right": 915,
+    "bottom": 348
+  },
+  {
+    "text": "250.00",
+    "conf": 96.0,
+    "left": 1012,
+    "top": 329,
+    "width": 64,
+    "height": 17,
+    "right": 1076,
+    "bottom": 346
+  },
+  {
+    "text": "250.00",
+    "conf": 96.0,
+    "left": 1170,
+    "top": 326,
+    "width": 64,
+    "height": 17,
+    "right": 1234,
+    "bottom": 343
+  },
+  {
+    "text": "GLUCOSE",
+    "conf": 96.0,
+    "left": 37,
+    "top": 384,
+    "width": 102,
+    "height": 18,
+    "right": 139,
+    "bottom": 402
+  },
+  {
+    "text": "FASTING",
+    "conf": 96.0,
+    "left": 147,
+    "top": 382,
+    "width": 89,
+    "height": 18,
+    "right": 236,
+    "bottom": 400
+  },
+  {
+    "text": "(FBS)",
+    "conf": 96.0,
+    "left": 244,
+    "top": 381,
+    "width": 55,
+    "height": 22,
+    "right": 299,
+    "bottom": 403
+  },
+  {
+    "text": "25/09/2025",
+    "conf": 94.0,
+    "left": 550,
+    "top": 374,
+    "width": 106,
+    "height": 18,
+    "right": 656,
+    "bottom": 392
+  },
+  {
+    "text": "1",
+    "conf": 78.0,
+    "left": 909,
+    "top": 370,
+    "width": 6,
+    "height": 15,
+    "right": 915,
+    "bottom": 385
+  },
+  {
+    "text": "50.00",
+    "conf": 96.0,
+    "left": 1025,
+    "top": 367,
+    "width": 52,
+    "height": 16,
+    "right": 1077,
+    "bottom": 383
+  },
+  {
+    "text": "50.00",
+    "conf": 96.0,
+    "left": 1183,
+    "top": 364,
+    "width": 52,
+    "height": 16,
+    "right": 1235,
+    "bottom": 380
+  },
+  {
+    "text": "OTHERS",
+    "conf": 95.0,
+    "left": 33,
+    "top": 433,
+    "width": 88,
+    "height": 18,
+    "right": 121,
+    "bottom": 451
+  },
+  {
+    "text": "X-Ray",
+    "conf": 94.0,
+    "left": 38,
+    "top": 482,
+    "width": 58,
+    "height": 20,
+    "right": 96,
+    "bottom": 502
+  },
+  {
+    "text": "25/09/2025",
+    "conf": 96.0,
+    "left": 552,
+    "top": 471,
+    "width": 105,
+    "height": 17,
+    "right": 657,
+    "bottom": 488
+  },
+  {
+    "text": "1",
+    "conf": 89.0,
+    "left": 911,
+    "top": 465,
+    "width": 6,
+    "height": 16,
+    "right": 917,
+    "bottom": 481
+  },
+  {
+    "text": "500.00",
+    "conf": 96.0,
+    "left": 1015,
+    "top": 463,
+    "width": 63,
+    "height": 17,
+    "right": 1078,
+    "bottom": 480
+  },
+  {
+    "text": "500.00",
+    "conf": 96.0,
+    "left": 1173,
+    "top": 460,
+    "width": 63,
+    "height": 16,
+    "right": 1236,
+    "bottom": 476
+  },
+  {
+    "text": "Registration",
+    "conf": 96.0,
+    "left": 39,
+    "top": 515,
+    "width": 112,
+    "height": 29,
+    "right": 151,
+    "bottom": 544
+  },
+  {
+    "text": "25/09/2025",
+    "conf": 94.0,
+    "left": 552,
+    "top": 508,
+    "width": 106,
+    "height": 18,
+    "right": 658,
+    "bottom": 526
+  },
+  {
+    "text": "1",
+    "conf": 90.0,
+    "left": 911,
+    "top": 503,
+    "width": 7,
+    "height": 16,
+    "right": 918,
+    "bottom": 519
+  },
+  {
+    "text": "300.00",
+    "conf": 96.0,
+    "left": 1015,
+    "top": 500,
+    "width": 64,
+    "height": 17,
+    "right": 1079,
+    "bottom": 517
+  },
+  {
+    "text": "300.00",
+    "conf": 96.0,
+    "left": 1173,
+    "top": 497,
+    "width": 64,
+    "height": 17,
+    "right": 1237,
+    "bottom": 514
+  },
+  {
+    "text": "Room",
+    "conf": 96.0,
+    "left": 40,
+    "top": 556,
+    "width": 55,
+    "height": 16,
+    "right": 95,
+    "bottom": 572
+  },
+  {
+    "text": "Ward",
+    "conf": 96.0,
+    "left": 102,
+    "top": 554,
+    "width": 48,
+    "height": 17,
+    "right": 150,
+    "bottom": 571
+  },
+  {
+    "text": "Charges",
+    "conf": 96.0,
+    "left": 158,
+    "top": 553,
+    "width": 79,
+    "height": 20,
+    "right": 237,
+    "bottom": 573
+  },
+  {
+    "text": "25/09/2025",
+    "conf": 94.0,
+    "left": 553,
+    "top": 544,
+    "width": 106,
+    "height": 18,
+    "right": 659,
+    "bottom": 562
+  },
+  {
+    "text": "3",
+    "conf": 96.0,
+    "left": 911,
+    "top": 539,
+    "width": 10,
+    "height": 16,
+    "right": 921,
+    "bottom": 555
+  },
+  {
+    "text": "2000.00",
+    "conf": 96.0,
+    "left": 1004,
+    "top": 536,
+    "width": 75,
+    "height": 17,
+    "right": 1079,
+    "bottom": 553
+  },
+  {
+    "text": "6000.00",
+    "conf": 95.0,
+    "left": 1162,
+    "top": 533,
+    "width": 75,
+    "height": 17,
+    "right": 1237,
+    "bottom": 550
+  },
+  {
+    "text": "DMO,",
+    "conf": 94.0,
+    "left": 41,
+    "top": 593,
+    "width": 49,
+    "height": 19,
+    "right": 90,
+    "bottom": 612
+  },
+  {
+    "text": "(Ward)",
+    "conf": 95.0,
+    "left": 96,
+    "top": 591,
+    "width": 63,
+    "height": 22,
+    "right": 159,
+    "bottom": 613
+  },
+  {
+    "text": "25/09/2025",
+    "conf": 96.0,
+    "left": 554,
+    "top": 582,
+    "width": 105,
+    "height": 17,
+    "right": 659,
+    "bottom": 599
+  },
+  {
+    "text": "3",
+    "conf": 96.0,
+    "left": 911,
+    "top": 577,
+    "width": 11,
+    "height": 16,
+    "right": 922,
+    "bottom": 593
+  },
+  {
+    "text": "500.00",
+    "conf": 96.0,
+    "left": 1016,
+    "top": 573,
+    "width": 64,
+    "height": 18,
+    "right": 1080,
+    "bottom": 591
+  },
+  {
+    "text": "1500.00",
+    "conf": 95.0,
+    "left": 1163,
+    "top": 571,
+    "width": 75,
+    "height": 17,
+    "right": 1238,
+    "bottom": 588
+  },
+  {
+    "text": "Nursing",
+    "conf": 97.0,
+    "left": 42,
+    "top": 630,
+    "width": 70,
+    "height": 20,
+    "right": 112,
+    "bottom": 650
+  },
+  {
+    "text": "Charge",
+    "conf": 96.0,
+    "left": 120,
+    "top": 629,
+    "width": 69,
+    "height": 19,
+    "right": 189,
+    "bottom": 648
+  },
+  {
+    "text": "(Ward)",
+    "conf": 96.0,
+    "left": 196,
+    "top": 626,
+    "width": 63,
+    "height": 22,
+    "right": 259,
+    "bottom": 648
+  },
+  {
+    "text": "25/09/2025",
+    "conf": 80.0,
+    "left": 554,
+    "top": 619,
+    "width": 106,
+    "height": 17,
+    "right": 660,
+    "bottom": 636
+  },
+  {
+    "text": "3",
+    "conf": 96.0,
+    "left": 912,
+    "top": 614,
+    "width": 10,
+    "height": 16,
+    "right": 922,
+    "bottom": 630
+  },
+  {
+    "text": "500.00",
+    "conf": 78.0,
+    "left": 1017,
+    "top": 611,
+    "width": 64,
+    "height": 17,
+    "right": 1081,
+    "bottom": 628
+  },
+  {
+    "text": "1500.00",
+    "conf": 94.0,
+    "left": 1164,
+    "top": 609,
+    "width": 75,
+    "height": 15,
+    "right": 1239,
+    "bottom": 624
+  },
+  {
+    "text": "Maintenance",
+    "conf": 96.0,
+    "left": 42,
+    "top": 668,
+    "width": 120,
+    "height": 16,
+    "right": 162,
+    "bottom": 684
+  },
+  {
+    "text": "Charges",
+    "conf": 96.0,
+    "left": 169,
+    "top": 665,
+    "width": 80,
+    "height": 20,
+    "right": 249,
+    "bottom": 685
+  },
+  {
+    "text": "25/09/2025",
+    "conf": 96.0,
+    "left": 555,
+    "top": 657,
+    "width": 106,
+    "height": 17,
+    "right": 661,
+    "bottom": 674
+  },
+  {
+    "text": "3",
+    "conf": 96.0,
+    "left": 913,
+    "top": 651,
+    "width": 10,
+    "height": 16,
+    "right": 923,
+    "bottom": 667
+  },
+  {
+    "text": "200.00",
+    "conf": 96.0,
+    "left": 1017,
+    "top": 648,
+    "width": 65,
+    "height": 17,
+    "right": 1082,
+    "bottom": 665
+  },
+  {
+    "text": "600.00",
+    "conf": 96.0,
+    "left": 1175,
+    "top": 645,
+    "width": 64,
+    "height": 17,
+    "right": 1239,
+    "bottom": 662
+  },
+  {
+    "text": "Nebulization",
+    "conf": 92.0,
+    "left": 43,
+    "top": 700,
+    "width": 114,
+    "height": 30,
+    "right": 157,
+    "bottom": 730
+  },
+  {
+    "text": "25/09/2025",
+    "conf": 81.0,
+    "left": 555,
+    "top": 694,
+    "width": 106,
+    "height": 18,
+    "right": 661,
+    "bottom": 712
+  },
+  {
+    "text": "10",
+    "conf": 95.0,
+    "left": 902,
+    "top": 689,
+    "width": 21,
+    "height": 16,
+    "right": 923,
+    "bottom": 705
+  },
+  {
+    "text": "100.00",
+    "conf": 92.0,
+    "left": 1019,
+    "top": 686,
+    "width": 63,
+    "height": 17,
+    "right": 1082,
+    "bottom": 703
+  },
+  {
+    "text": "1000.00",
+    "conf": 94.0,
+    "left": 1165,
+    "top": 683,
+    "width": 75,
+    "height": 17,
+    "right": 1240,
+    "bottom": 700
+  },
+  {
+    "text": "Total:",
+    "conf": 96.0,
+    "left": 1037,
+    "top": 727,
+    "width": 55,
+    "height": 16,
+    "right": 1092,
+    "bottom": 743
+  },
+  {
+    "text": "16390.00",
+    "conf": 88.0,
+    "left": 1151,
+    "top": 724,
+    "width": 86,
+    "height": 17,
+    "right": 1237,
+    "bottom": 741
+  },
+  {
+    "text": "—",
+    "conf": 91.0,
+    "left": 1262,
+    "top": 725,
+    "width": 28,
+    "height": 13,
+    "right": 1290,
+    "bottom": 738
+  }
+]
