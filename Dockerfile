@@ -1,18 +1,13 @@
 FROM python:3.11-slim
 
-# Set environment variables
-# PYTHONUNBUFFERED=1 ensures logs are visible immediately in the console
-# PYTHONDONTWRITEBYTECODE=1 prevents creation of .pyc files
+# Set env vars for logging
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Install system dependencies
-# tesseract-ocr: for text extraction
-# poppler-utils: for converting PDF to images
-# libgl1 & libglib2.0-0: required for OpenCV
+# poppler-utils: for PDF -> Image conversion
+# libgl1: for OpenCV (just in case)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    tesseract-ocr \
-    libtesseract-dev \
     poppler-utils \
     git \
     build-essential \
@@ -22,14 +17,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy requirements first to leverage Docker cache
+# Install Python deps
 COPY requirements.txt /app/requirements.txt
-
-# Upgrade pip and install dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy the rest of the application
+# Copy source code
 COPY . /app
 
 EXPOSE 10000
