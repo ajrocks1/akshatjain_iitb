@@ -7,4 +7,4 @@ numpy==1.26.4
 pillow==10.1.0
 requests==2.31.0
 loguru
-google-generativeai>=1.0.0
+google-generativeai>=0.8.0
