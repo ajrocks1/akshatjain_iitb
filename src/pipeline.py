@@ -2,12 +2,11 @@ import os
 import tempfile
 import requests
 from pdf2image import convert_from_path
-# from src.ocr import extract_text_from_image  <-- Commented out to save time
-# from src.page_classifier import classify_page <-- Commented out
 from src.llm_utils import parse_items_with_llm
 from loguru import logger
 
 def download_url_to_file(url):
+    """Downloads file and preserves extension."""
     resp = requests.get(url, stream=True, timeout=30)
     resp.raise_for_status()
     path_no_query = url.split('?')[0]
@@ -24,8 +23,10 @@ def process_bill(file_url: str) -> dict:
     local_path = download_url_to_file(file_url)
     ext = os.path.splitext(local_path)[1].lower()
 
+    # 1. Convert to List of Image Paths
     if ext == '.pdf':
         try:
+            # Converting PDF to images
             images = convert_from_path(local_path, fmt='png')
             pages = []
             for i, img in enumerate(images, start=1):
@@ -45,12 +46,12 @@ def process_bill(file_url: str) -> dict:
     total_items = 0
     token_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
+    # 2. Process Each Page
     for idx, image_path in enumerate(pages):
         logger.info(f"Processing page {idx+1}...")
         try:
-            # SKIPPING OCR TO SAVE TIME
-            # We assume it is a bill page if we are processing it
-            page_type = "Bill Detail" 
+            # We assume it is a bill detail since we skipped the slow OCR classifier
+            page_type = "Bill Detail"
 
             # Vision LLM Step (Pass IMAGE PATH)
             try:
@@ -60,6 +61,7 @@ def process_bill(file_url: str) -> dict:
                 items = []
                 usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
+            # C. Normalize Data Types
             for item in items:
                 item["item_name"] = str(item.get("item_name", "")).strip()
                 for field in ["item_quantity", "item_rate", "item_amount"]:
@@ -70,6 +72,8 @@ def process_bill(file_url: str) -> dict:
                         item[field] = 0.0
 
             total_items += len(items)
+            
+            # D. Aggregate Usage
             for k in token_usage:
                 token_usage[k] += usage.get(k, 0)
 
