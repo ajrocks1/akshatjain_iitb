@@ -7,6 +7,7 @@ from loguru import logger
 import gc
 import concurrent.futures
 import time
+import PIL.Image
 
 def download_url_to_file(url):
     """Downloads file and preserves extension."""
@@ -21,41 +22,68 @@ def download_url_to_file(url):
     tmp.flush(); tmp.close()
     return tmp.name
 
+def optimize_image(image_path_or_obj, is_obj=False):
+    """
+    Resizes image to max 1024px and saves as optimized JPEG.
+    Returns path to temp JPEG.
+    """
+    try:
+        if is_obj:
+            img = image_path_or_obj
+        else:
+            img = PIL.Image.open(image_path_or_obj)
+            
+        # Resize to speed up processing (Max 1024x1024)
+        img.thumbnail((1024, 1024))
+        
+        # Convert to RGB (in case of RGBA png)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+            
+        # Save as compressed JPEG
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+            img.save(tmp.name, format='JPEG', quality=85)
+            return tmp.name
+    except Exception as e:
+        logger.error(f"Image optimization failed: {e}")
+        return None
+
 def process_page_task(page_num: int, file_path: str, is_pdf: bool) -> dict:
     """
-    Worker function: Converts (if PDF) AND Extracts in one go.
+    Worker: Converts -> Resizes -> Extracts.
     """
     start_time = time.time()
-    temp_img_path = None
+    temp_jpeg_path = None
     
     try:
-        # 1. CONVERT ON DEMAND (Lazy Loading)
+        # 1. GET IMAGE
         if is_pdf:
-            # logger.info(f"P{page_num}: Converting...")
+            # Convert PDF Page
             images = convert_from_path(
                 file_path, 
                 first_page=page_num, 
                 last_page=page_num, 
-                fmt='png', 
-                thread_count=1 # Low CPU per thread
+                fmt='jpeg', 
+                thread_count=1
             )
             if not images:
                 raise ValueError("PDF Page conversion returned no images")
             
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                images[0].save(tmp.name, format='PNG')
-                temp_img_path = tmp.name
+            # Optimize immediately
+            temp_jpeg_path = optimize_image(images[0], is_obj=True)
             
-            # Free RAM immediately
+            # Free RAM
             del images
             gc.collect()
         else:
-            # It's already an image
-            temp_img_path = file_path
+            # Optimize existing image
+            temp_jpeg_path = optimize_image(file_path, is_obj=False)
+
+        if not temp_jpeg_path:
+            raise ValueError("Failed to prepare image for Vision AI")
 
         # 2. EXTRACT WITH AI
-        # logger.info(f"P{page_num}: Analyzing...")
-        p_type, items, usage = parse_items_with_llm(temp_img_path)
+        p_type, items, usage = parse_items_with_llm(temp_jpeg_path)
         
         duration = time.time() - start_time
         logger.info(f"Page {page_num} Done in {duration:.1f}s. Items: {len(items)}")
@@ -75,7 +103,7 @@ def process_page_task(page_num: int, file_path: str, is_pdf: bool) -> dict:
             "page_type": p_type,
             "bill_items": items,
             "token_usage": usage,
-            "temp_path": temp_img_path if is_pdf else None
+            "temp_path": temp_jpeg_path
         }
 
     except Exception as e:
@@ -85,46 +113,40 @@ def process_page_task(page_num: int, file_path: str, is_pdf: bool) -> dict:
             "page_type": "Bill Detail",
             "bill_items": [],
             "token_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-            "temp_path": temp_img_path
+            "temp_path": temp_jpeg_path
         }
 
 def process_bill(file_url: str) -> dict:
     start_run = time.time()
-    logger.info(f"Starting bill processing for URL: {file_url}")
+    logger.info(f"Starting optimized bill processing for URL: {file_url}")
     local_path = download_url_to_file(file_url)
     ext = os.path.splitext(local_path)[1].lower()
 
     final_results = []
     total_items = 0
     total_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
-    
-    # Track temp files to cleanup
     cleanup_list = [local_path]
 
     try:
         tasks = []
         is_pdf = False
 
-        # 1. SETUP TASKS (Instant)
         if ext == '.pdf':
             is_pdf = True
             info = pdfinfo_from_path(local_path)
             max_pages = info["Pages"]
-            logger.info(f"PDF has {max_pages} pages. Launching parallel workers immediately...")
-            
+            logger.info(f"PDF has {max_pages} pages. Launching 5 parallel workers...")
             for i in range(1, max_pages + 1):
                 tasks.append(i)
-        
         elif ext in ['.png', '.jpg', '.jpeg', '.webp']:
             logger.info("Processing single image...")
             tasks.append(1)
-        
         else:
             raise ValueError(f"Unsupported file type: {ext}")
 
-        # 2. PARALLEL EXECUTION (Conversion + Extraction)
-        # 3 Workers is the sweet spot for Render Free Tier (RAM safe)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        # --- OPTIMIZATION: 5 WORKERS ---
+        # Smaller images = Less RAM = More Workers safe
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             future_to_page = {
                 executor.submit(process_page_task, p_num, local_path, is_pdf): p_num 
                 for p_num in tasks
@@ -134,20 +156,16 @@ def process_bill(file_url: str) -> dict:
                 res = future.result()
                 final_results.append(res)
                 
-                # Aggregate
                 total_items += len(res["bill_items"])
                 u = res["token_usage"]
                 for k in total_usage:
                     total_usage[k] += u.get(k, 0)
                 
-                # Cleanup Individual Page Image immediately
+                # Cleanup fast
                 if res["temp_path"] and os.path.exists(res["temp_path"]):
-                    try:
-                        os.remove(res["temp_path"])
-                    except:
-                        pass
+                    try: os.remove(res["temp_path"])
+                    except: pass
 
-        # 3. FINALIZE
         final_results.sort(key=lambda x: int(x["page_no"]))
         
         cleaned_results = []
@@ -159,7 +177,6 @@ def process_bill(file_url: str) -> dict:
             })
 
     finally:
-        # Global Cleanup
         for f in cleanup_list:
             if os.path.exists(f):
                 try: os.remove(f)
@@ -167,7 +184,7 @@ def process_bill(file_url: str) -> dict:
         gc.collect()
 
     total_time = time.time() - start_run
-    logger.info(f"RUN COMPLETE. Time: {total_time:.2f}s (Target <150s). Items: {total_items}")
+    logger.info(f"RUN COMPLETE. Time: {total_time:.2f}s. Items: {total_items}")
 
     return {
         "is_success": True,
