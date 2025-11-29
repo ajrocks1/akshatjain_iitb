@@ -1,36 +1,90 @@
-from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, validator
+from fastapi import APIRouter, HTTPException, status, Request
 from loguru import logger
 from src.pipeline import process_bill
+import json
+from datetime import datetime
 
 router = APIRouter()
 
-class BillRequest(BaseModel):
-    document: str  # CHANGED: 'url' -> 'document'
+# --- IN-MEMORY HISTORY STORAGE ---
+# Stores the last 10 requests/responses
+API_HISTORY = []
 
-    @validator('document')
-    def validate_document(cls, v):
-        if not v.startswith(('http://', 'https://')):
-            raise ValueError('Document URL must start with http:// or https://')
-        return v
+@router.get("/", status_code=status.HTTP_200_OK)
+def health_check():
+    return {"status": "online", "service": "Bill Extractor Vision AI"}
 
-@router.post("/extract-bill-data", status_code=status.HTTP_200_OK)  # CHANGED: Endpoint Path
-async def extract_bill_data(payload: BillRequest):
+# --- NEW DEBUG ENDPOINT ---
+@router.get("/debug/history", status_code=status.HTTP_200_OK)
+def view_history():
+    """
+    Call this from your browser to see the last 10 API calls cleanly.
+    """
+    return {
+        "count": len(API_HISTORY),
+        "recent_logs": API_HISTORY
+    }
+
+# --- SHARED LOGIC ---
+async def handle_extraction(request: Request):
     try:
-        logger.info(f"Received document URL: {payload.document}")
+        # 1. Capture Input
+        try:
+            body = await request.json()
+            input_payload = body
+        except Exception:
+            raise HTTPException(status_code=422, detail="Invalid JSON body")
+
+        # 2. Extract URL logic (Same as before)
+        doc_url = body.get("document") or body.get("url")
+        if not doc_url:
+            for val in body.values():
+                if isinstance(val, str) and val.startswith(("http://", "https://")):
+                    doc_url = val
+                    break
         
-        # Pass the correct field to the pipeline
-        result = process_bill(payload.document)
+        if not doc_url:
+            raise ValueError(f"No valid URL found. Keys: {list(body.keys())}")
         
-        logger.info(f"Extraction Complete. Found {result['data']['total_item_count']} items.")
+        if "AIza" in doc_url:
+            raise ValueError("Invalid URL: API Key detected.")
+
+        logger.info(f"Processing: {doc_url}")
+        
+        # 3. Run Pipeline
+        result = process_bill(doc_url)
+        
+        # 4. SAVE TO HISTORY (The Magic Part)
+        log_entry = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "judge_input": input_payload,
+            "your_response": result
+        }
+        
+        # Keep only last 10 entries to save memory
+        API_HISTORY.insert(0, log_entry)
+        if len(API_HISTORY) > 10:
+            API_HISTORY.pop()
+            
+        logger.info(f"Success. History updated. View at /debug/history")
         
         return result
 
-    except ValueError as ve:
-        logger.error(f"Input Validation Error: {ve}")
-        # Return 400 or 422 depending on preference, but 422 is standard for validation
-        raise HTTPException(status_code=422, detail=str(ve))
-        
     except Exception as e:
-        logger.error(f"Processing failed: {e}")
+        logger.error(f"Error: {e}")
+        # Also log failures to history so you can debug them
+        error_entry = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "judge_input": body if 'body' in locals() else "Parse Error",
+            "error": str(e)
+        }
+        API_HISTORY.insert(0, error_entry)
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/extract-bill-data", status_code=status.HTTP_200_OK)
+async def extract_bill_data(request: Request):
+    return await handle_extraction(request)
+
+@router.post("/extract_bill", status_code=status.HTTP_200_OK)
+async def extract_bill_old(request: Request):
+    return await handle_extraction(request)
