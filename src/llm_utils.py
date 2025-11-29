@@ -27,14 +27,13 @@ def get_optimal_model_name() -> str:
     try:
         available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        # STRICT PRIORITY: Only use 1.5 Flash variants (High Limits)
-        # Removed 2.0 and 2.5 to avoid low rate limits
+        # PRIORITIZE PINNED VERSIONS (Most Stable)
         priorities = [
-            "models/gemini-1.5-flash",
-            "models/gemini-1.5-flash-001",
-            "models/gemini-1.5-flash-002",
+            "models/gemini-1.5-flash-001",  # STABLE PINNED (Best for Prod)
+            "models/gemini-1.5-flash-002",  # NEWER STABLE
+            "models/gemini-1.5-flash",      # ALIAS (Can be flaky)
             "models/gemini-1.5-flash-8b",
-            "models/gemini-1.5-pro",
+            "models/gemini-1.5-pro-001",
         ]
         
         for p in priorities:
@@ -43,12 +42,13 @@ def get_optimal_model_name() -> str:
                 logger.info(f"Selected High-Speed Model: {p}")
                 return p
         
-        # Fallback to generic alias
-        _CACHED_MODEL_NAME = "models/gemini-1.5-flash"
+        # Fallback to the most reliable pinned version
+        _CACHED_MODEL_NAME = "models/gemini-1.5-flash-001"
         return _CACHED_MODEL_NAME
 
     except Exception:
-        return "models/gemini-1.5-flash"
+        # Fallback if list_models fails
+        return "models/gemini-1.5-flash-001"
 
 def clean_json(text: str) -> str:
     return re.sub(r'^```(json)?|```$', '', text.strip(), flags=re.MULTILINE).strip()
@@ -84,7 +84,7 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
         logger.error(f"Could not load image: {e}")
         return "Bill Detail", [], base_usage
 
-    max_retries = 5  # Increased from 3 to handle 429s better
+    max_retries = 5 
     for attempt in range(max_retries):
         try:
             model = GenerativeModel(model_name)
@@ -113,12 +113,24 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
 
         except Exception as e:
             error_str = str(e)
+            
+            # HANDLE 404 MODEL NOT FOUND (Dynamic Switch)
+            if "404" in error_str and "models/" in error_str:
+                logger.warning(f"Model {model_name} not found (404). Switching to fallback...")
+                # Switch globally to the generic alias if specific pin fails, or vice versa
+                global _CACHED_MODEL_NAME
+                if "001" in model_name:
+                    _CACHED_MODEL_NAME = "models/gemini-1.5-flash"
+                else:
+                    _CACHED_MODEL_NAME = "models/gemini-1.5-flash-001"
+                model_name = _CACHED_MODEL_NAME
+                continue
+
             if "429" in error_str and attempt < max_retries - 1:
-                # EXPONENTIAL BACKOFF: 5s, 10s, 20s, 40s
-                # This ensures we wait out the ~25s penalty seen in your logs
-                sleep_time = (5 * (2 ** attempt)) + random.uniform(1, 5)
-                logger.warning(f"Quota 429. Retrying in {sleep_time:.2f}s... (Attempt {attempt+1}/{max_retries})")
+                sleep_time = (2 * (attempt + 1)) + random.uniform(0.1, 2.0)
+                logger.warning(f"Quota 429. Retrying in {sleep_time:.2f}s...")
                 time.sleep(sleep_time)
                 continue
+                
             logger.error(f"Vision LLM Failed: {e}")
             raise
