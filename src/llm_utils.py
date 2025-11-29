@@ -1,157 +1,122 @@
 import os
-import tempfile
-import requests
-from pdf2image import convert_from_path, pdfinfo_from_path
-from src.llm_utils import parse_items_with_llm
+import json
+import re
+import time
+import random
+import PIL.Image
+from typing import List, Dict, Any, Tuple
 from loguru import logger
-import gc
-import concurrent.futures
+import google.generativeai as genai
+from google.generativeai import GenerativeModel
 
-def download_url_to_file(url):
-    """Downloads file and preserves extension."""
-    resp = requests.get(url, stream=True, timeout=30)
-    resp.raise_for_status()
-    path_no_query = url.split('?')[0]
-    suffix = os.path.splitext(path_no_query)[1] or ".bin"
+# Configure API Key
+api_key = os.getenv("GEMINI_API_KEY")
+if not api_key:
+    logger.error("GEMINI_API_KEY is missing!")
+else:
+    genai.configure(api_key=api_key)
+
+_CACHED_MODEL_NAME = None
+
+def get_optimal_model_name() -> str:
+    global _CACHED_MODEL_NAME
+    if _CACHED_MODEL_NAME: return _CACHED_MODEL_NAME
     
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    for chunk in resp.iter_content(chunk_size=8192):
-        tmp.write(chunk)
-    tmp.flush(); tmp.close()
-    return tmp.name
-
-def process_single_page(page_num: int, image_path: str) -> dict:
-    """
-    Worker function to process a single page in a separate thread.
-    """
-    logger.info(f"Thread started for Page {page_num}...")
-    try:
-        # Call Vision LLM
-        p_type, items, usage = parse_items_with_llm(image_path)
-        
-        # Normalize Data
-        for item in items:
-            item["item_name"] = str(item.get("item_name", "")).strip()
-            for field in ["item_quantity", "item_rate", "item_amount"]:
-                try:
-                    item[field] = float(item.get(field, 0.0))
-                except:
-                    item[field] = 0.0
-
-        return {
-            "page_no": str(page_num),
-            "page_type": p_type,
-            "bill_items": items,
-            "token_usage": usage,
-            "image_path": image_path # Return path so we can delete it later
-        }
-    except Exception as e:
-        logger.error(f"Error on Page {page_num}: {e}")
-        return {
-            "page_no": str(page_num),
-            "page_type": "Bill Detail",
-            "bill_items": [],
-            "token_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-            "image_path": image_path
-        }
-
-def process_bill(file_url: str) -> dict:
-    logger.info(f"Starting bill processing for URL: {file_url}")
-    local_path = download_url_to_file(file_url)
-    ext = os.path.splitext(local_path)[1].lower()
-
-    final_results = []
-    total_items = 0
-    total_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
-    temp_files_to_cleanup = []
+    if os.getenv("GEMINI_MODEL_NAME"):
+        return os.getenv("GEMINI_MODEL_NAME")
 
     try:
-        # 1. PREPARE IMAGE PATHS (Low Memory)
-        tasks = []
+        available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        if ext == '.pdf':
-            info = pdfinfo_from_path(local_path)
-            max_pages = info["Pages"]
-            logger.info(f"PDF has {max_pages} pages. Converting to images...")
-
-            for i in range(1, max_pages + 1):
-                # Convert 1 page at a time to keep RAM low
-                page_images = convert_from_path(local_path, first_page=i, last_page=i, fmt='png', thread_count=1)
-                if page_images:
-                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_img:
-                        page_images[0].save(tmp_img.name, format='PNG')
-                        tasks.append((i, tmp_img.name))
-                        temp_files_to_cleanup.append(tmp_img.name)
-                    del page_images
-                    gc.collect()
+        priorities = [
+            "models/gemini-2.5-flash", "models/gemini-2.0-flash", 
+            "models/gemini-1.5-flash", "models/gemini-1.5-pro"
+        ]
         
-        elif ext in ['.png', '.jpg', '.jpeg', '.webp']:
-            tasks.append((1, local_path))
+        for p in priorities:
+            if p in available:
+                _CACHED_MODEL_NAME = p
+                return p
         
-        else:
-            raise ValueError(f"Unsupported file type: {ext}")
+        _CACHED_MODEL_NAME = "models/gemini-1.5-flash"
+        return _CACHED_MODEL_NAME
 
-        # 2. PARALLEL EXECUTION (Speed Boost)
-        # We use 3 workers to stay within 512MB RAM but process 3x faster
-        logger.info(f"Starting Parallel Processing with 3 workers on {len(tasks)} pages...")
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            # Submit all tasks
-            future_to_page = {
-                executor.submit(process_single_page, p_num, p_path): p_num 
-                for p_num, p_path in tasks
-            }
-            
-            # Collect results as they finish
-            for future in concurrent.futures.as_completed(future_to_page):
-                res = future.result()
-                final_results.append(res)
-                
-                # Aggregate Stats immediately
-                total_items += len(res["bill_items"])
-                u = res["token_usage"]
-                for k in total_usage:
-                    total_usage[k] += u.get(k, 0)
-                
-                # Cleanup individual page image immediately to free space
-                if os.path.exists(res["image_path"]) and res["image_path"] != local_path:
-                    try:
-                        os.remove(res["image_path"])
-                    except:
-                        pass
+    except Exception:
+        return "models/gemini-1.5-flash"
 
-        # 3. SORT RESULTS (Because parallel threads finish randomly)
-        final_results.sort(key=lambda x: int(x["page_no"]))
-        
-        # Remove internal keys before returning
-        cleaned_results = []
-        for r in final_results:
-            cleaned_results.append({
-                "page_no": r["page_no"],
-                "page_type": r["page_type"],
-                "bill_items": r["bill_items"]
-            })
+def clean_json(text: str) -> str:
+    return re.sub(r'^```(json)?|```$', '', text.strip(), flags=re.MULTILINE).strip()
 
-    except Exception as e:
-        logger.error(f"Processing Failed: {e}")
-        raise e
-    finally:
-        # Final cleanup
-        if os.path.exists(local_path):
-            os.remove(local_path)
-        for p in temp_files_to_cleanup:
-            if os.path.exists(p):
-                try: os.remove(p)
-                except: pass
-        gc.collect()
+def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Dict[str, int]]:
+    """
+    Analyzes image and returns (page_type, items, usage).
+    Thread-safe with random jitter backoff.
+    """
+    model_name = get_optimal_model_name()
+    
+    prompt = """
+    Analyze this medical bill image.
+    
+    1. CLASSIFY the page into exactly one of these types:
+       - "Pharmacy": Lists medicines/drugs with batch numbers.
+       - "Final Bill": Summary totals like 'Room Charges', 'Grand Total'.
+       - "Bill Detail": Line-item breakdown of services.
+    
+    2. EXTRACT all line items.
+       - Fields: item_name, item_amount, item_rate, item_quantity.
+       - Use null if missing.
+       - Correct typos (e.g. 'Consutaion' -> 'Consultation').
 
-    logger.info(f"Pipeline Completed. Total Time < 150s Target. Items: {total_items}")
-
-    return {
-        "is_success": True,
-        "token_usage": total_usage,
-        "data": {
-            "pagewise_line_items": cleaned_results,
-            "total_item_count": total_items
-        }
+    RETURN STRICT JSON:
+    {
+        "page_type": "...",
+        "items": [ ... ]
     }
+    """
+    
+    base_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
+    try:
+        img = PIL.Image.open(image_path)
+    except Exception as e:
+        logger.error(f"Could not load image: {e}")
+        return "Bill Detail", [], base_usage
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            model = GenerativeModel(model_name)
+            response = model.generate_content(
+                [prompt, img], 
+                generation_config={"response_mime_type": "application/json"}
+            )
+            
+            usage = base_usage.copy()
+            if response.usage_metadata:
+                usage = {
+                    "input_tokens": response.usage_metadata.prompt_token_count,
+                    "output_tokens": response.usage_metadata.candidates_token_count,
+                    "total_tokens": response.usage_metadata.total_token_count
+                }
+
+            parsed = json.loads(clean_json(response.text))
+            
+            # Handle list vs object response
+            if isinstance(parsed, list):
+                return "Bill Detail", parsed, usage
+            
+            p_type = parsed.get("page_type", "Bill Detail")
+            items = parsed.get("items", [])
+            
+            return p_type, items, usage
+
+        except Exception as e:
+            # RATE LIMIT HANDLING FOR PARALLEL WORKERS
+            if "429" in str(e) and attempt < max_retries - 1:
+                # Add random jitter (e.g., 5.1s, 5.8s) so threads don't retry at exact same time
+                sleep_time = (5 * (attempt + 1)) + random.uniform(0.1, 1.5)
+                logger.warning(f"Quota 429. Retrying in {sleep_time:.2f}s...")
+                time.sleep(sleep_time)
+                continue
+            logger.error(f"Vision LLM Failed: {e}")
+            raise
