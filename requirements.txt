@@ -6,3 +6,4 @@ opencv-python==4.8.0.76
 numpy==1.26.4
 pillow==10.1.0
 requests==2.31.0
+loguru==0.7.2
