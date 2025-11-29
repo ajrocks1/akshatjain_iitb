@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, status, Request, Body
 from loguru import logger
 from src.pipeline import process_bill
 import json
+import asyncio  # <--- NEW IMPORT
 from datetime import datetime
 from typing import Dict, Any
 
@@ -21,27 +22,18 @@ def view_history():
         "recent_logs": API_HISTORY
     }
 
-# --- NEW: Clear History Endpoint ---
 @router.delete("/debug/history", status_code=status.HTTP_200_OK)
 def clear_history():
     API_HISTORY.clear()
     return {"status": "success", "message": "History has been cleared."}
 
 # --- SHARED LOGIC ---
-def process_extraction_logic(body: Dict[str, Any]):
-    """
-    Common logic that accepts a Dictionary (parsed JSON) 
-    and finds the URL regardless of the key name.
-    """
+async def process_extraction_logic(body: Dict[str, Any]): # Made async
     try:
-        # 1. Log the exact input
         logger.info(f"INCOMING PAYLOAD: {json.dumps(body)}")
         
-        # 2. Smart Key Detection
-        # Check for 'document', then 'url', then 'link', then 'file'
         doc_url = body.get("document") or body.get("url") or body.get("link") or body.get("file")
         
-        # Fallback: Look for ANY value that starts with http
         if not doc_url:
             for val in body.values():
                 if isinstance(val, str) and val.startswith(("http://", "https://")):
@@ -56,10 +48,11 @@ def process_extraction_logic(body: Dict[str, Any]):
 
         logger.info(f"Processing: {doc_url}")
         
-        # 3. Run Pipeline
-        result = process_bill(doc_url)
+        # --- NON-BLOCKING CALL (The Optimization) ---
+        # This moves the heavy processing to a separate thread,
+        # keeping your /debug/history endpoint instant!
+        result = await asyncio.to_thread(process_bill, doc_url)
         
-        # 4. Save History
         log_entry = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "input": body,
@@ -82,27 +75,21 @@ def process_extraction_logic(body: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# --- ROUTE 1: Official Endpoint (Restored UI) ---
 @router.post("/extract-bill-data", status_code=status.HTTP_200_OK)
-def extract_bill_data(
+async def extract_bill_data(
     payload: Dict[str, Any] = Body(
         ..., 
         example={"document": "https://hackrx.blob.core.windows.net/sample.png"}
     )
 ):
-    """
-    Smart Endpoint: Accepts any JSON. 
-    Swagger UI will show an example input box.
-    """
-    return process_extraction_logic(payload)
+    return await process_extraction_logic(payload)
 
 
-# --- ROUTE 2: Legacy Endpoint ---
 @router.post("/extract_bill", status_code=status.HTTP_200_OK)
-def extract_bill_old(
+async def extract_bill_old(
     payload: Dict[str, Any] = Body(
         ..., 
         example={"url": "https://hackrx.blob.core.windows.net/sample.png"}
     )
 ):
-    return process_extraction_logic(payload)
+    return await process_extraction_logic(payload)
