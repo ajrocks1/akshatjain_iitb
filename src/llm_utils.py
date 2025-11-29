@@ -11,7 +11,7 @@ from google.generativeai import GenerativeModel
 # Configure API Key
 api_key = os.getenv("GEMINI_API_KEY")
 if not api_key:
-    logger.error("GEMINI_API_KEY is missing from environment variables!")
+    logger.error("GEMINI_API_KEY is missing!")
 else:
     genai.configure(api_key=api_key)
 
@@ -19,13 +19,12 @@ _CACHED_MODEL_NAME = None
 
 def get_optimal_model_name() -> str:
     """
-    Finds the best Vision-capable model. 
-    Prioritizes Flash 1.5/2.0 for speed and multimodal capabilities.
+    Finds the best Vision-capable model.
+    Prioritizes Flash 1.5/2.0/2.5 for speed and multimodal capabilities.
     """
     global _CACHED_MODEL_NAME
     if _CACHED_MODEL_NAME: return _CACHED_MODEL_NAME
     
-    # Check env override
     if os.getenv("GEMINI_MODEL_NAME"):
         return os.getenv("GEMINI_MODEL_NAME")
 
@@ -71,10 +70,10 @@ def parse_items_with_llm(image_path: str) -> Tuple[List[Dict[str, Any]], Dict[st
     
     CRITICAL INSTRUCTIONS:
     1. Read item names exactly as they appear, but correct obvious typos (e.g., 'Consutaion' -> 'Consultation').
-    2. Contextualize codes: 'S6204' is likely 'SG204' if other items use 'SG'. Fix these OCR-like errors.
+    2. Contextualize codes: 'S6204' is likely 'SG204' if other items use 'SG'. Fix these errors based on visual context.
     3. Return fields: item_name (string), item_amount (number), item_rate (number), item_quantity (number).
     4. Use null if a field is missing.
-    5. Ignore page headers/footers.
+    5. If this image is NOT a bill (e.g., a blank page or instruction manual), return an empty list [].
     """
     
     base_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
@@ -110,7 +109,6 @@ def parse_items_with_llm(image_path: str) -> Tuple[List[Dict[str, Any]], Dict[st
             if isinstance(parsed, list): 
                 return parsed, usage
             
-            logger.warning("Model output was not a list.")
             return [], usage
 
         except Exception as e:
