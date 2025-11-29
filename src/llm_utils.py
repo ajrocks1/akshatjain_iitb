@@ -27,14 +27,14 @@ def get_optimal_model_name() -> str:
     try:
         available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        # PRIORITIZE 1.5 FLASH (High Limits) over Experimental (Low Limits)
+        # STRICT PRIORITY: Only use 1.5 Flash variants (High Limits)
+        # Removed 2.0 and 2.5 to avoid low rate limits
         priorities = [
             "models/gemini-1.5-flash",
             "models/gemini-1.5-flash-001",
             "models/gemini-1.5-flash-002",
             "models/gemini-1.5-flash-8b",
-            "models/gemini-2.0-flash-exp",
-            "models/gemini-2.5-flash"
+            "models/gemini-1.5-pro",
         ]
         
         for p in priorities:
