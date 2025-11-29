@@ -1,12 +1,8 @@
+# src/page_classifier.py
 def classify_page(text: str) -> str:
-    """
-    Simple heuristic-based classification of page type based on keywords.
-    """
-    lower_text = text.lower()
-    if "pharmacy" in lower_text or "rx" in lower_text:
+    lowered = text.lower()
+    if "pharmacy" in lowered:
         return "Pharmacy"
-    if "total" in lower_text or "amount" in lower_text or "grand total" in lower_text:
-        # Likely a summary or final billing page
+    elif "final amount" in lowered or "total amount" in lowered or "grand total" in lowered:
         return "Final Bill"
-    # Default fallback
     return "Bill Detail"
