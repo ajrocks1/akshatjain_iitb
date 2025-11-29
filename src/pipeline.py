@@ -26,7 +26,6 @@ def process_bill(file_url: str) -> dict:
     # 1. Convert to List of Image Paths
     if ext == '.pdf':
         try:
-            # Converting PDF to images
             images = convert_from_path(local_path, fmt='png')
             pages = []
             for i, img in enumerate(images, start=1):
@@ -50,10 +49,9 @@ def process_bill(file_url: str) -> dict:
     for idx, image_path in enumerate(pages):
         logger.info(f"Processing page {idx+1}...")
         try:
-            # We assume it is a bill detail since we skipped the slow OCR classifier
+            # Assume Bill Detail since we skipped OCR
             page_type = "Bill Detail"
 
-            # Vision LLM Step (Pass IMAGE PATH)
             try:
                 items, usage = parse_items_with_llm(image_path)
             except Exception as e:
@@ -61,7 +59,7 @@ def process_bill(file_url: str) -> dict:
                 items = []
                 usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
-            # C. Normalize Data Types
+            # Normalize Data Types
             for item in items:
                 item["item_name"] = str(item.get("item_name", "")).strip()
                 for field in ["item_quantity", "item_rate", "item_amount"]:
@@ -73,7 +71,7 @@ def process_bill(file_url: str) -> dict:
 
             total_items += len(items)
             
-            # D. Aggregate Usage
+            # Aggregate Usage
             for k in token_usage:
                 token_usage[k] += usage.get(k, 0)
 
@@ -95,9 +93,10 @@ def process_bill(file_url: str) -> dict:
     except Exception as cleanup_error:
         logger.warning(f"Cleanup failed: {cleanup_error}")
 
+    # --- EXACT REQUIRED OUTPUT STRUCTURE ---
     return {
         "is_success": True,
-        "token_usage": token_usage,
+        "token_usage": token_usage,  # <--- NOW AT ROOT LEVEL
         "data": {
             "pagewise_line_items": results,
             "total_item_count": total_items
