@@ -27,13 +27,13 @@ def get_optimal_model_name() -> str:
     try:
         available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        # PRIORITIZE PINNED VERSIONS (Most Stable)
+        # UPDATED PRIORITIES BASED ON YOUR RATE LIMIT SCREENSHOTS
         priorities = [
-            "models/gemini-1.5-flash-001",  # STABLE PINNED (Best for Prod)
-            "models/gemini-1.5-flash-002",  # NEWER STABLE
-            "models/gemini-1.5-flash",      # ALIAS (Can be flaky)
-            "models/gemini-1.5-flash-8b",
-            "models/gemini-1.5-pro-001",
+            "models/gemini-2.0-flash-001",  # STABLE 2.0 (2,000 RPM)
+            "models/gemini-2.0-flash",      # Alias
+            "models/gemini-2.5-flash",      # 1,000 RPM
+            "models/gemini-2.5-flash-lite", # 4,000 RPM (Fastest, but maybe less accurate)
+            "models/gemini-1.5-flash",      # Deprecated fallback
         ]
         
         for p in priorities:
@@ -42,13 +42,18 @@ def get_optimal_model_name() -> str:
                 logger.info(f"Selected High-Speed Model: {p}")
                 return p
         
-        # Fallback to the most reliable pinned version
-        _CACHED_MODEL_NAME = "models/gemini-1.5-flash-001"
+        # Fallback search if exact names don't match
+        for m in available:
+            if "2.0-flash" in m and "exp" not in m: # Avoid experimental
+                _CACHED_MODEL_NAME = m
+                return m
+
+        # Ultimate fallback
+        _CACHED_MODEL_NAME = "models/gemini-1.5-flash"
         return _CACHED_MODEL_NAME
 
     except Exception:
-        # Fallback if list_models fails
-        return "models/gemini-1.5-flash-001"
+        return "models/gemini-1.5-flash"
 
 def clean_json(text: str) -> str:
     return re.sub(r'^```(json)?|```$', '', text.strip(), flags=re.MULTILINE).strip()
@@ -84,7 +89,7 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
         logger.error(f"Could not load image: {e}")
         return "Bill Detail", [], base_usage
 
-    max_retries = 5 
+    max_retries = 5
     for attempt in range(max_retries):
         try:
             model = GenerativeModel(model_name)
@@ -114,23 +119,22 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
         except Exception as e:
             error_str = str(e)
             
-            # HANDLE 404 MODEL NOT FOUND (Dynamic Switch)
-            if "404" in error_str and "models/" in error_str:
-                logger.warning(f"Model {model_name} not found (404). Switching to fallback...")
-                # Switch globally to the generic alias if specific pin fails, or vice versa
+            # 404 Handler (Just in case)
+            if "404" in error_str:
+                logger.warning(f"Model {model_name} 404. Resetting cache...")
                 global _CACHED_MODEL_NAME
-                if "001" in model_name:
-                    _CACHED_MODEL_NAME = "models/gemini-1.5-flash"
-                else:
-                    _CACHED_MODEL_NAME = "models/gemini-1.5-flash-001"
-                model_name = _CACHED_MODEL_NAME
+                _CACHED_MODEL_NAME = None 
                 continue
 
             if "429" in error_str and attempt < max_retries - 1:
-                sleep_time = (2 * (attempt + 1)) + random.uniform(0.1, 2.0)
+                # With 2000 RPM, 429s should be rare, so we can lower the backoff
+                sleep_time = (2 * (attempt + 1)) + random.uniform(0.1, 1.0)
                 logger.warning(f"Quota 429. Retrying in {sleep_time:.2f}s...")
                 time.sleep(sleep_time)
                 continue
                 
             logger.error(f"Vision LLM Failed: {e}")
             raise
+    
+    # Safety return
+    return "Bill Detail", [], base_usage
