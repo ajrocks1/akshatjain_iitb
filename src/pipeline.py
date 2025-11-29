@@ -1,7 +1,7 @@
 from pdf2image import convert_from_path
 from ocr import extract_text_from_image
-from page_classifier import classify_page
-from llm_utils import parse_items_with_llm
+from src.page_classifier import classify_page
+from src.llm_utils import parse_items_with_llm
 from loguru import logger
 import os
 import tempfile
