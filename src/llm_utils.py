@@ -21,7 +21,7 @@ def parse_items_with_llm(text: str):
     prompt = build_prompt(text)
     try:
         logger.info("Sending prompt to Gemini...")
-        model = genai.GenerativeModel("gemini-pro")
+        model = genai.GenerativeModel(model_name="models/gemini-pro")
         response = model.generate_content(prompt)
         if response.text:
             # Evaluate Gemini's response into Python list
