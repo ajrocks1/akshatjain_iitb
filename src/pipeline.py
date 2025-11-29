@@ -3,11 +3,9 @@ import tempfile
 import requests
 from pdf2image import convert_from_path
 from src.ocr import extract_text_from_image
-# We use a try-except block here in case src.page_classifier doesn't exist yet
 try:
     from src.page_classifier import classify_page
 except ImportError:
-    # Fallback if the classifier module is missing
     def classify_page(text): return "unknown"
 
 from src.llm_utils import parse_items_with_llm
@@ -16,7 +14,6 @@ from loguru import logger
 def download_url_to_file(url):
     resp = requests.get(url, stream=True, timeout=30)
     resp.raise_for_status()
-    # Handle query parameters in URL when getting extension
     path_no_query = url.split('?')[0]
     suffix = os.path.splitext(path_no_query)[1] or ".bin"
     
@@ -31,7 +28,6 @@ def process_bill(file_url: str) -> dict:
     local_path = download_url_to_file(file_url)
     ext = os.path.splitext(local_path)[1].lower()
 
-    # Convert PDF to image pages or use single image
     if ext == '.pdf':
         try:
             images = convert_from_path(local_path, fmt='png')
@@ -57,7 +53,6 @@ def process_bill(file_url: str) -> dict:
         logger.info(f"Processing page {idx+1}...")
         try:
             text = extract_text_from_image(image)
-            # Default to sufficient text check if OCR failed silently
             if not text or len(text) < 10:
                 logger.warning(f"Page {idx+1} has insufficient text.")
                 text = ""
@@ -65,14 +60,14 @@ def process_bill(file_url: str) -> dict:
             page_type = classify_page(text)
 
             try:
-                # FIX: parse_items_with_llm returns only 'items', not 'usage'
-                # We initialize usage to 0 to preserve your data structure
-                items = parse_items_with_llm(text)
-                usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+                # Updated to unpack items AND usage
+                items, usage = parse_items_with_llm(text)
             except Exception as e:
                 logger.warning(f"LLM failed on page {idx+1}: {e}")
-                items, usage = [], {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+                items = []
+                usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
+            # Post-processing items
             for item in items:
                 item["item_name"] = str(item.get("item_name", "")).strip()
                 for field in ["item_quantity", "item_rate", "item_amount"]:
@@ -82,7 +77,10 @@ def process_bill(file_url: str) -> dict:
                         item[field] = 0.0
 
             total_items += len(items)
-            for k in token_usage: token_usage[k] += usage.get(k, 0)
+            
+            # Aggregate Token Usage
+            for k in token_usage:
+                token_usage[k] += usage.get(k, 0)
 
             results.append({
                 "page_no": str(idx + 1),
@@ -93,11 +91,9 @@ def process_bill(file_url: str) -> dict:
         except Exception as e:
             logger.error(f"Error processing page {idx+1}: {e}")
         finally:
-            # Cleanup temp page image
             if image != local_path and os.path.exists(image):
                 os.remove(image)
 
-    # Cleanup main download
     try:
         if os.path.exists(local_path):
             os.remove(local_path)
