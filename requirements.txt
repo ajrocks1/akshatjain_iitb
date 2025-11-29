@@ -8,4 +8,3 @@ pillow==10.1.0
 requests==2.31.0
 loguru
 google-generativeai>=1.0.0
-python-dotenv
