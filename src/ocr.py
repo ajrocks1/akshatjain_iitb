@@ -1,20 +1,15 @@
-import pytesseract
+# src/ocr.py
 from PIL import Image
+import pytesseract
 from loguru import logger
 
 def extract_text_from_image(image_path: str) -> str:
-    """
-    Perform OCR on an image file and return extracted text.
-    """
     try:
-        image = Image.open(image_path)
-    except Exception as e:
-        logger.error(f"Failed to open image for OCR: {e}")
-        return ""
-    try:
-        # Use Tesseract to do OCR; adjust config if needed (e.g., language, PSM)
-        text = pytesseract.image_to_string(image)
+        logger.info(f"Running OCR on {image_path}")
+        img = Image.open(image_path)
+        text = pytesseract.image_to_string(img)
+        logger.debug(f"OCR extracted {len(text)} characters")
         return text
     except Exception as e:
-        logger.error(f"OCR failed on image: {e}")
+        logger.error(f"OCR failed on {image_path}: {e}")
         return ""
