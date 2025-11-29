@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from pipeline import process_bill
+from src.pipeline import process_bill
 from loguru import logger
 import shutil
 import os
