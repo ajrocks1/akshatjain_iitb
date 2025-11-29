@@ -1,49 +1,43 @@
-# src/api_server.py
-from fastapi import FastAPI
-from pydantic import BaseModel
-from src.pipeline import process_document_from_url
-from typing import Optional
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from pipeline import process_bill
+from loguru import logger
+import shutil
+import os
 
-app = FastAPI(title="Bill Extraction API")
+app = FastAPI()
 
-class DocumentReq(BaseModel):
-    document: str
+@app.post("/extract_bill")
+async def extract_bill(file: UploadFile = File(...)):
+    """
+    API endpoint to receive a bill file (PDF or image), process it, and return structured data.
+    """
+    logger.info(f"Received file: {file.filename}")
+    # Validate file extension
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ['.pdf', '.png', '.jpg', '.jpeg']:
+        logger.warning(f"Unsupported file extension: {ext}")
+        raise HTTPException(status_code=400, detail="File must be PDF or image")
 
-@app.post("/extract-bill-data")
-def extract_bill_data(req: DocumentReq):
     try:
-        data = process_document_from_url(req.document)
-        pagewise = []
-        for p in data.get("pagewise_line_items", []):
-            page_no = str(p.get("page_no", "1"))
-            page_type = p.get("page_type", "Bill Detail")
-            clean_items = []
-            for it in p.get("bill_items", []):
-                clean_items.append({
-                    "item_name": it.get("item_name") if it.get("item_name") is not None else "",
-                    "item_amount": float(it.get("item_amount")) if it.get("item_amount") is not None else None,
-                    "item_rate": float(it.get("item_rate")) if it.get("item_rate") is not None else None,
-                    "item_quantity": float(it.get("item_quantity")) if it.get("item_quantity") is not None else None
-                })
-            pagewise.append({
-                "page_no": page_no,
-                "page_type": page_type,
-                "bill_items": clean_items
-            })
+        # Save uploaded file temporarily
+        temp_path = f"/tmp/{file.filename}"
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        logger.info(f"File saved to {temp_path}")
 
-        resp = {
-            "is_success": True,
-            "token_usage": {"total_tokens": 0, "input_tokens": 0, "output_tokens": 0},
-            "data": {
-                "pagewise_line_items": pagewise,
-                "total_item_count": int(data.get("total_item_count", 0))
-            }
-        }
+        # Process the file
+        result = process_bill(temp_path)
+        logger.info("Processing completed successfully")
     except Exception as e:
-        resp = {
-            "is_success": False,
-            "token_usage": {"total_tokens": 0, "input_tokens": 0, "output_tokens": 0},
-            "data": {"pagewise_line_items": [], "total_item_count": 0},
-            "error": str(e)
-        }
-    return resp
+        logger.error(f"Processing failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Clean up the saved file
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+                logger.info(f"Removed temporary file: {temp_path}")
+        except Exception as e:
+            logger.warning(f"Failed to remove temporary file: {e}")
+
+    return result
