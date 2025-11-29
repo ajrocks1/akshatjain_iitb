@@ -27,11 +27,12 @@ def get_optimal_model_name() -> str:
     try:
         available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        # PRIORITIZE 1.5 FLASH FOR SPEED
+        # PRIORITIZE 1.5 FLASH (High Limits) over Experimental (Low Limits)
         priorities = [
             "models/gemini-1.5-flash",
             "models/gemini-1.5-flash-001",
             "models/gemini-1.5-flash-002",
+            "models/gemini-1.5-flash-8b",
             "models/gemini-2.0-flash-exp",
             "models/gemini-2.5-flash"
         ]
@@ -42,6 +43,7 @@ def get_optimal_model_name() -> str:
                 logger.info(f"Selected High-Speed Model: {p}")
                 return p
         
+        # Fallback to generic alias
         _CACHED_MODEL_NAME = "models/gemini-1.5-flash"
         return _CACHED_MODEL_NAME
 
@@ -82,7 +84,7 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
         logger.error(f"Could not load image: {e}")
         return "Bill Detail", [], base_usage
 
-    max_retries = 3
+    max_retries = 5  # Increased from 3 to handle 429s better
     for attempt in range(max_retries):
         try:
             model = GenerativeModel(model_name)
@@ -110,10 +112,12 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
             return p_type, items, usage
 
         except Exception as e:
-            if "429" in str(e) and attempt < max_retries - 1:
-                # Optimized Jitter for 5 workers
-                sleep_time = (2 * (attempt + 1)) + random.uniform(0.1, 2.0)
-                logger.warning(f"Quota 429. Retrying in {sleep_time:.2f}s...")
+            error_str = str(e)
+            if "429" in error_str and attempt < max_retries - 1:
+                # EXPONENTIAL BACKOFF: 5s, 10s, 20s, 40s
+                # This ensures we wait out the ~25s penalty seen in your logs
+                sleep_time = (5 * (2 ** attempt)) + random.uniform(1, 5)
+                logger.warning(f"Quota 429. Retrying in {sleep_time:.2f}s... (Attempt {attempt+1}/{max_retries})")
                 time.sleep(sleep_time)
                 continue
             logger.error(f"Vision LLM Failed: {e}")
