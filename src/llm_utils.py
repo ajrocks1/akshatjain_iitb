@@ -18,10 +18,6 @@ else:
 _CACHED_MODEL_NAME = None
 
 def get_optimal_model_name() -> str:
-    """
-    Finds the best Vision-capable model.
-    Prioritizes Flash 1.5/2.0/2.5 for speed and multimodal capabilities.
-    """
     global _CACHED_MODEL_NAME
     if _CACHED_MODEL_NAME: return _CACHED_MODEL_NAME
     
@@ -32,12 +28,9 @@ def get_optimal_model_name() -> str:
         logger.info("Auto-detecting Vision model...")
         available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        # Priority list for Vision tasks
         priorities = [
-            "models/gemini-2.5-flash", 
-            "models/gemini-2.0-flash", 
-            "models/gemini-1.5-flash", 
-            "models/gemini-1.5-pro"
+            "models/gemini-2.5-flash", "models/gemini-2.0-flash", 
+            "models/gemini-1.5-flash", "models/gemini-1.5-pro"
         ]
         
         for p in priorities:
@@ -46,7 +39,6 @@ def get_optimal_model_name() -> str:
                 logger.info(f"Selected Vision Model: {p}")
                 return p
         
-        # Fallback
         _CACHED_MODEL_NAME = "models/gemini-1.5-flash"
         return _CACHED_MODEL_NAME
 
@@ -55,25 +47,34 @@ def get_optimal_model_name() -> str:
         return "models/gemini-1.5-flash"
 
 def clean_json(text: str) -> str:
-    """Removes Markdown formatting to ensure valid JSON."""
     return re.sub(r'^```(json)?|```$', '', text.strip(), flags=re.MULTILINE).strip()
 
-def parse_items_with_llm(image_path: str) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Dict[str, int]]:
     """
-    Sends the IMAGE directly to Gemini Vision.
-    Returns: (items_list, token_usage_dict)
+    Returns: (page_type, items_list, token_usage)
     """
     model_name = get_optimal_model_name()
     
+    # --- UPDATED PROMPT FOR CLASSIFICATION ---
     prompt = """
-    Analyze this bill image. Extract all line items as a strictly formatted JSON list.
+    Analyze this medical bill image.
     
-    CRITICAL INSTRUCTIONS:
-    1. Read item names exactly as they appear, but correct obvious typos (e.g., 'Consutaion' -> 'Consultation').
-    2. Contextualize codes: 'S6204' is likely 'SG204' if other items use 'SG'. Fix these errors based on visual context.
-    3. Return fields: item_name (string), item_amount (number), item_rate (number), item_quantity (number).
-    4. Use null if a field is missing.
-    5. If this image is NOT a bill (e.g., a blank page or instruction manual), return an empty list [].
+    1. CLASSIFY the page into exactly one of these types:
+       - "Pharmacy": If it lists medicines/drugs with batch numbers or expiry.
+       - "Final Bill": If it shows summary totals like 'Room Charges', 'Professional Fees', 'Grand Total'.
+       - "Bill Detail": For standard line-item breakdowns of hospital services/procedures.
+    
+    2. EXTRACT all line items.
+       - Fields: item_name, item_amount, item_rate, item_quantity.
+       - Use null if missing.
+       - Correct typos (e.g. 'Consutaion' -> 'Consultation').
+       - Contextualize codes (e.g. read 'S6' as 'SG' if appropriate).
+
+    RETURN STRICT JSON:
+    {
+        "page_type": "...",
+        "items": [ ... ]
+    }
     """
     
     base_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
@@ -81,21 +82,18 @@ def parse_items_with_llm(image_path: str) -> Tuple[List[Dict[str, Any]], Dict[st
     try:
         img = PIL.Image.open(image_path)
     except Exception as e:
-        logger.error(f"Could not load image for Vision: {e}")
-        return [], base_usage
+        logger.error(f"Could not load image: {e}")
+        return "Bill Detail", [], base_usage
 
     max_retries = 3
     for attempt in range(max_retries):
         try:
             model = GenerativeModel(model_name)
-            
-            # Send [Prompt, Image] - This is the Multimodal call
             response = model.generate_content(
                 [prompt, img], 
                 generation_config={"response_mime_type": "application/json"}
             )
             
-            # Extract Token Usage
             usage = base_usage.copy()
             if response.usage_metadata:
                 usage = {
@@ -106,16 +104,19 @@ def parse_items_with_llm(image_path: str) -> Tuple[List[Dict[str, Any]], Dict[st
 
             parsed = json.loads(clean_json(response.text))
             
-            if isinstance(parsed, list): 
-                return parsed, usage
+            # handle case where model might just return a list (fallback)
+            if isinstance(parsed, list):
+                return "Bill Detail", parsed, usage
             
-            return [], usage
+            # Normal object response
+            p_type = parsed.get("page_type", "Bill Detail")
+            items = parsed.get("items", [])
+            
+            return p_type, items, usage
 
         except Exception as e:
             if "429" in str(e) and attempt < max_retries - 1:
-                wait = 5 * (attempt + 1)
-                logger.warning(f"Quota 429. Retrying in {wait}s...")
-                time.sleep(wait)
+                time.sleep(5 * (attempt + 1))
                 continue
             logger.error(f"Vision LLM Failed: {e}")
             raise
