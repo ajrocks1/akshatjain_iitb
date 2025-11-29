@@ -21,6 +21,12 @@ def view_history():
         "recent_logs": API_HISTORY
     }
 
+# --- NEW: Clear History Endpoint ---
+@router.delete("/debug/history", status_code=status.HTTP_200_OK)
+def clear_history():
+    API_HISTORY.clear()
+    return {"status": "success", "message": "History has been cleared."}
+
 # --- SHARED LOGIC ---
 def process_extraction_logic(body: Dict[str, Any]):
     """
