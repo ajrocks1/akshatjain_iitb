@@ -2,12 +2,8 @@ import os
 import tempfile
 import requests
 from pdf2image import convert_from_path
-from src.ocr import extract_text_from_image
-try:
-    from src.page_classifier import classify_page
-except ImportError:
-    def classify_page(text): return "unknown"
-
+# from src.ocr import extract_text_from_image  <-- Commented out to save time
+# from src.page_classifier import classify_page <-- Commented out
 from src.llm_utils import parse_items_with_llm
 from loguru import logger
 
@@ -49,36 +45,31 @@ def process_bill(file_url: str) -> dict:
     total_items = 0
     token_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
-    for idx, image in enumerate(pages):
+    for idx, image_path in enumerate(pages):
         logger.info(f"Processing page {idx+1}...")
         try:
-            text = extract_text_from_image(image)
-            if not text or len(text) < 10:
-                logger.warning(f"Page {idx+1} has insufficient text.")
-                text = ""
-                
-            page_type = classify_page(text)
+            # SKIPPING OCR TO SAVE TIME
+            # We assume it is a bill page if we are processing it
+            page_type = "Bill Detail" 
 
+            # Vision LLM Step (Pass IMAGE PATH)
             try:
-                # Updated to unpack items AND usage
-                items, usage = parse_items_with_llm(text)
+                items, usage = parse_items_with_llm(image_path)
             except Exception as e:
-                logger.warning(f"LLM failed on page {idx+1}: {e}")
+                logger.warning(f"Vision LLM failed on page {idx+1}: {e}")
                 items = []
                 usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
-            # Post-processing items
             for item in items:
                 item["item_name"] = str(item.get("item_name", "")).strip()
                 for field in ["item_quantity", "item_rate", "item_amount"]:
                     try:
-                        item[field] = float(item.get(field, 0.0))
+                        val = item.get(field)
+                        item[field] = float(val) if val is not None else 0.0
                     except:
                         item[field] = 0.0
 
             total_items += len(items)
-            
-            # Aggregate Token Usage
             for k in token_usage:
                 token_usage[k] += usage.get(k, 0)
 
@@ -91,8 +82,8 @@ def process_bill(file_url: str) -> dict:
         except Exception as e:
             logger.error(f"Error processing page {idx+1}: {e}")
         finally:
-            if image != local_path and os.path.exists(image):
-                os.remove(image)
+            if image_path != local_path and os.path.exists(image_path):
+                os.remove(image_path)
 
     try:
         if os.path.exists(local_path):
