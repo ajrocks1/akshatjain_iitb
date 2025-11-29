@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import time
 from typing import List, Dict, Any
 from loguru import logger
 import google.generativeai as genai
@@ -13,66 +14,68 @@ if not api_key:
 else:
     genai.configure(api_key=api_key)
 
-# Cache the working model name so we don't query the API every time
+# Cache the working model name
 _CACHED_MODEL_NAME = None
 
 def get_optimal_model_name() -> str:
     """
-    Automatically finds a model that the current API key has access to.
-    Prioritizes Gemini 1.5 Flash -> 1.5 Pro -> 1.0 Pro.
+    Finds the best available model. 
+    Prioritizes 'Flash' models (high speed/quota) over 'Pro' or 'Preview' models.
     """
     global _CACHED_MODEL_NAME
     if _CACHED_MODEL_NAME:
         return _CACHED_MODEL_NAME
 
-    # 1. Try environment variable override first
+    # Allow manual override
     env_model = os.getenv("GEMINI_MODEL_NAME")
     if env_model:
         _CACHED_MODEL_NAME = env_model
         return env_model
 
-    logger.info("Auto-detecting best available Gemini model for this API key...")
+    logger.info("Auto-detecting best available Gemini model...")
     
     try:
-        # Get all models that support content generation
         available_models = []
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods:
                 available_models.append(m.name)
         
-        logger.info(f"Available models found: {available_models}")
-
-        # Preference list (Best to Good)
-        # Note: list_models() returns names with 'models/' prefix
+        # Updated Priority List based on your logs (Newer models first)
+        # We prioritize FLASH models because they have higher rate limits (RPM)
         priorities = [
+            "models/gemini-2.5-flash",
+            "models/gemini-2.0-flash",
             "models/gemini-1.5-flash",
             "models/gemini-1.5-flash-001",
+            "models/gemini-1.5-flash-8b",
             "models/gemini-1.5-pro",
-            "models/gemini-1.5-pro-001",
-            "models/gemini-1.0-pro",
-            "models/gemini-pro"
+            "models/gemini-1.0-pro"
         ]
 
-        # Pick the first priority that exists in the available list
+        # check for matches
         for p in priorities:
             if p in available_models:
                 _CACHED_MODEL_NAME = p
-                logger.info(f"Selected optimal model: {p}")
+                logger.info(f"Selected optimal high-quota model: {p}")
                 return p
         
-        # Fallback: Just take the first available one if none of our preferences match
+        # Smart Fallback: If no exact match, look for ANY 'flash' model
+        for m in available_models:
+            if "flash" in m.lower():
+                _CACHED_MODEL_NAME = m
+                logger.warning(f"No preferred exact match. Falling back to generic flash model: {m}")
+                return m
+
+        # Ultimate Fallback
         if available_models:
             _CACHED_MODEL_NAME = available_models[0]
-            logger.warning(f"No preferred model found. Defaulting to: {_CACHED_MODEL_NAME}")
+            logger.warning(f"No Flash model found. Defaulting to: {_CACHED_MODEL_NAME}")
             return _CACHED_MODEL_NAME
 
     except Exception as e:
-        logger.error(f"Failed to auto-detect models: {e}")
+        logger.error(f"Model auto-detection failed: {e}")
 
-    # Ultimate fallback (if listing fails entirely)
-    fallback = "models/gemini-1.5-flash"
-    logger.warning(f"Auto-detection failed. forcing fallback to: {fallback}")
-    return fallback
+    return "models/gemini-1.5-flash"
 
 def build_prompt(text: str) -> str:
     return f"""
@@ -97,34 +100,43 @@ def clean_json_response(raw_text: str) -> str:
 
 def parse_items_with_llm(text: str) -> List[Dict[str, Any]]:
     prompt = build_prompt(text)
+    model_name = get_optimal_model_name()
     
-    try:
-        # Dynamically get the working model name
-        model_name = get_optimal_model_name()
-        
-        logger.info(f"Sending prompt to Gemini (Model: {model_name})...")
+    # Retry configuration
+    max_retries = 3
+    base_delay = 5  # seconds
 
-        model = GenerativeModel(model_name)
-        
-        # Enforce JSON generation
-        response = model.generate_content(
-            prompt,
-            generation_config={"response_mime_type": "application/json"}
-        )
-
-        content = response.text.strip()
-        logger.debug(f"Raw Gemini response: {content}")
-        
-        cleaned_content = clean_json_response(content)
-        parsed_data = json.loads(cleaned_content)
-        
-        if isinstance(parsed_data, list):
-            logger.info(f"LLM parsed {len(parsed_data)} items.")
-            return parsed_data
-        else:
-            logger.warning("Model returned JSON, but it was not a list.")
-            return []
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Sending prompt to Gemini (Model: {model_name}, Attempt: {attempt+1})...")
+            model = GenerativeModel(model_name)
             
-    except Exception as e:
-        logger.error(f"Gemini call failed: {e}")
-        raise
+            response = model.generate_content(
+                prompt,
+                generation_config={"response_mime_type": "application/json"}
+            )
+
+            content = response.text.strip()
+            cleaned_content = clean_json_response(content)
+            parsed_data = json.loads(cleaned_content)
+            
+            if isinstance(parsed_data, list):
+                logger.info(f"LLM parsed {len(parsed_data)} items.")
+                return parsed_data
+            else:
+                logger.warning("Model returned JSON, but it was not a list.")
+                return []
+
+        except Exception as e:
+            error_str = str(e)
+            
+            # Check for Quota (429) or Overloaded (503) errors
+            if "429" in error_str or "quota" in error_str.lower():
+                if attempt < max_retries - 1:
+                    wait_time = base_delay * (attempt + 1)
+                    logger.warning(f"Quota exceeded (429). Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+            
+            logger.error(f"Gemini call failed: {e}")
+            raise
