@@ -1,8 +1,10 @@
 # src/llm_utils.py
 import os
 from loguru import logger
+from google.generativeai import GenerativeModel
 import google.generativeai as genai
 
+# Configure Gemini API key
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 def build_prompt(text: str) -> str:
@@ -10,7 +12,7 @@ def build_prompt(text: str) -> str:
 Extract line items from the following bill text.
 Each item should contain item_name, item_amount, item_rate, and item_quantity.
 
-Return as a list of dictionaries like:
+Return the result as a Python list of dictionaries in this format:
 [{{"item_name": "...", "item_amount": ..., "item_rate": ..., "item_quantity": ...}}, ...]
 
 BILL TEXT:
@@ -21,17 +23,14 @@ def parse_items_with_llm(text: str):
     prompt = build_prompt(text)
     try:
         logger.info("Sending prompt to Gemini...")
-        model = genai.GenerativeModel(model_name="models/gemini-pro")
+
+        model = GenerativeModel("gemini-1.5-flash")  # or "gemini-pro" if needed
         response = model.generate_content(prompt)
+
+        content = response.text.strip()
+        logger.debug(f"Raw Gemini response: {content}")
         
-        # Safely extract text from Gemini response
-        parts = response.candidates[0].content.parts
-        if not parts:
-            raise ValueError("Empty response from Gemini.")
-        
-        response_text = parts[0].text if hasattr(parts[0], 'text') else str(parts[0])
-        parsed = eval(response_text.strip())
-        
+        parsed = eval(content)  # Optionally: use `json.loads()` if response is JSON
         logger.info(f"LLM parsed {len(parsed)} items.")
         return parsed
     except Exception as e:
