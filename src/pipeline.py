@@ -1,111 +1,86 @@
+# src/pipeline.py
+import os
+import tempfile
+import requests
 from pdf2image import convert_from_path
 from src.ocr import extract_text_from_image
 from src.page_classifier import classify_page
 from src.llm_utils import parse_items_with_llm
 from loguru import logger
-import os
-import tempfile
 
-def process_bill(file_path: str) -> dict:
-    """
-    Main pipeline to process a bill PDF/image.
-    Steps: convert PDF->images, OCR text, parse items, classify pages, and format response.
-    """
-    logger.info(f"Starting bill processing for file: {file_path}")
+def download_url_to_file(url):
+    resp = requests.get(url, stream=True, timeout=30)
+    resp.raise_for_status()
+    suffix = os.path.splitext(url.split('?')[0])[1] or ".bin"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    for chunk in resp.iter_content(chunk_size=8192):
+        tmp.write(chunk)
+    tmp.flush(); tmp.close()
+    return tmp.name
 
-    # Prepare list of page image files
-    ext = os.path.splitext(file_path)[1].lower()
+def process_bill(file_url: str) -> dict:
+    logger.info(f"Starting bill processing for URL: {file_url}")
+    local_path = download_url_to_file(file_url)
+    ext = os.path.splitext(local_path)[1].lower()
+
+    # Convert PDF to image pages or use single image
     if ext == '.pdf':
-        try:
-            logger.info("Converting PDF to images...")
-            images = convert_from_path(file_path, fmt='png')
-            logger.info(f"Converted PDF to {len(images)} images")
-            pages = []
-            # Save each page image to a temp file
-            for i, img in enumerate(images, start=1):
-                temp_file = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
-                img.save(temp_file.name, format='PNG')
-                pages.append(temp_file.name)
-        except Exception as e:
-            logger.error(f"Failed to convert PDF to images: {e}")
-            raise
+        images = convert_from_path(local_path, fmt='png')
+        pages = []
+        for i, img in enumerate(images, start=1):
+            temp_img = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+            img.save(temp_img.name, format='PNG')
+            pages.append(temp_img.name)
     elif ext in ['.png', '.jpg', '.jpeg']:
-        pages = [file_path]
+        pages = [local_path]
     else:
         logger.error(f"Unsupported file format: {ext}")
-        raise ValueError(f"Unsupported file format: {ext}")
+        raise ValueError("Unsupported file type")
 
-    page_results = []
+    results = []
     total_items = 0
+    token_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
-    # Process each page image
-    for page_no, page_file in enumerate(pages, start=1):
-        logger.info(f"OCR on page {page_no}...")
-        try:
-            text = extract_text_from_image(page_file)
-        except Exception as e:
-            logger.error(f"OCR failed on page {page_no}: {e}")
-            text = ""
-
-        # Classify page type
+    for idx, image in enumerate(pages):
+        logger.info(f"Processing page {idx+1}...")
+        text = extract_text_from_image(image)
         page_type = classify_page(text)
-        logger.info(f"Page {page_no} classified as {page_type}")
 
-        # Parse line items using LLM
         try:
-            items = parse_items_with_llm(text)
-            logger.info(f"Extracted {len(items)} items from page {page_no}")
+            items, usage = parse_items_with_llm(text)
         except Exception as e:
-            logger.error(f"Item parsing failed on page {page_no}: {e}")
-            items = []
+            logger.warning(f"LLM failed on page {idx+1}: {e}")
+            items, usage = [], {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
-        # Ensure each item has all required fields (default 0.0 if missing)
         for item in items:
-            item.setdefault("item_quantity", 0.0)
-            item.setdefault("item_rate", 0.0)
-            item.setdefault("item_amount", 0.0)
-            item.setdefault("item_name", item.get("item_name", ""))
+            item["item_name"] = str(item.get("item_name", "")).strip()
+            for field in ["item_quantity", "item_rate", "item_amount"]:
+                try:
+                    item[field] = float(item.get(field, 0.0))
+                except:
+                    item[field] = 0.0
 
-            # Convert to float if possible, else default to 0.0
-            try:
-                item["item_quantity"] = float(item["item_quantity"]) if item["item_quantity"] else 0.0
-            except:
-                item["item_quantity"] = 0.0
-            try:
-                item["item_rate"] = float(item["item_rate"]) if item["item_rate"] else 0.0
-            except:
-                item["item_rate"] = 0.0
-            try:
-                item["item_amount"] = float(item["item_amount"]) if item["item_amount"] else 0.0
-            except:
-                item["item_amount"] = 0.0
+        total_items += len(items)
+        for k in token_usage: token_usage[k] += usage.get(k, 0)
 
-        page_results.append({
-            "page_no": str(page_no),
+        results.append({
+            "page_no": str(idx + 1),
             "page_type": page_type,
             "bill_items": items
         })
-        total_items += len(items)
 
-    # Clean up any temporary image files
-    for page_file in pages:
-        try:
-            if os.path.exists(page_file):
-                os.remove(page_file)
-        except Exception as e:
-            logger.warning(f"Failed to remove temp file {page_file}: {e}")
+    try:
+        os.remove(local_path)
+        for p in pages:
+            if os.path.exists(p): os.remove(p)
+    except Exception as cleanup_error:
+        logger.warning(f"Cleanup failed: {cleanup_error}")
 
-    response = {
+    return {
         "is_success": True,
-        "token_usage": {
-            "total_tokens": 0,
-            "input_tokens": 0,
-            "output_tokens": 0
-        },
+        "token_usage": token_usage,
         "data": {
-            "pagewise_line_items": page_results,
+            "pagewise_line_items": results,
             "total_item_count": total_items
         }
     }
-    logger.info("Completed bill processing")
-    return response
