@@ -1,43 +1,63 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from src.pipeline import process_bill
 from loguru import logger
+import requests
 import shutil
 import os
+import uuid
 
 app = FastAPI()
 
+class DocumentRequest(BaseModel):
+    document: str  # This will be the URL to the file
+
 @app.post("/extract_bill")
-async def extract_bill(file: UploadFile = File(...)):
+async def extract_bill(request: DocumentRequest):
     """
-    API endpoint to receive a bill file (PDF or image), process it, and return structured data.
+    API endpoint to receive a document URL (PDF or image), download it, process it, and return structured data.
     """
-    logger.info(f"Received file: {file.filename}")
-    # Validate file extension
-    ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in ['.pdf', '.png', '.jpg', '.jpeg']:
-        logger.warning(f"Unsupported file extension: {ext}")
-        raise HTTPException(status_code=400, detail="File must be PDF or image")
+    file_url = request.document
+    logger.info(f"Received document URL: {file_url}")
 
     try:
-        # Save uploaded file temporarily
-        temp_path = f"/tmp/{file.filename}"
-        with open(temp_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        logger.info(f"File saved to {temp_path}")
+        # Download the file
+        response = requests.get(file_url, stream=True)
+        response.raise_for_status()
 
-        # Process the file
-        result = process_bill(temp_path)
-        logger.info("Processing completed successfully")
+        # Determine file extension from content-type or URL
+        content_type = response.headers.get("content-type", "").lower()
+        ext = ""
+        if "pdf" in content_type:
+            ext = ".pdf"
+        elif "png" in content_type:
+            ext = ".png"
+        elif "jpeg" in content_type or "jpg" in content_type:
+            ext = ".jpg"
+        else:
+            ext = os.path.splitext(file_url)[-1].lower()
+            if ext not in ['.pdf', '.png', '.jpg', '.jpeg']:
+                logger.warning(f"Unsupported file type: {content_type}")
+                raise HTTPException(status_code=400, detail="Unsupported file type")
+
+        temp_filename = f"/tmp/{uuid.uuid4()}{ext}"
+        with open(temp_filename, 'wb') as out_file:
+            shutil.copyfileobj(response.raw, out_file)
+
+        logger.info(f"Downloaded file to: {temp_filename}")
+
+        # Process the bill
+        result = process_bill(temp_filename)
+        logger.info("Bill processing successful")
+
     except Exception as e:
-        logger.error(f"Processing failed: {e}")
+        logger.error(f"Failed to process document: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
     finally:
-        # Clean up the saved file
-        try:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-                logger.info(f"Removed temporary file: {temp_path}")
-        except Exception as e:
-            logger.warning(f"Failed to remove temporary file: {e}")
+        # Clean up temporary file
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
+            logger.info(f"Removed temporary file: {temp_filename}")
 
     return result
