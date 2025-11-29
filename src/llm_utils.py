@@ -9,7 +9,6 @@ from loguru import logger
 import google.generativeai as genai
 from google.generativeai import GenerativeModel
 
-# Configure API Key
 api_key = os.getenv("GEMINI_API_KEY")
 if not api_key:
     logger.error("GEMINI_API_KEY is missing!")
@@ -28,14 +27,19 @@ def get_optimal_model_name() -> str:
     try:
         available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
+        # PRIORITIZE 1.5 FLASH FOR SPEED
         priorities = [
-            "models/gemini-2.5-flash", "models/gemini-2.0-flash", 
-            "models/gemini-1.5-flash", "models/gemini-1.5-pro"
+            "models/gemini-1.5-flash",
+            "models/gemini-1.5-flash-001",
+            "models/gemini-1.5-flash-002",
+            "models/gemini-2.0-flash-exp",
+            "models/gemini-2.5-flash"
         ]
         
         for p in priorities:
             if p in available:
                 _CACHED_MODEL_NAME = p
+                logger.info(f"Selected High-Speed Model: {p}")
                 return p
         
         _CACHED_MODEL_NAME = "models/gemini-1.5-flash"
@@ -48,24 +52,20 @@ def clean_json(text: str) -> str:
     return re.sub(r'^```(json)?|```$', '', text.strip(), flags=re.MULTILINE).strip()
 
 def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Dict[str, int]]:
-    """
-    Analyzes image and returns (page_type, items, usage).
-    Thread-safe with random jitter backoff.
-    """
     model_name = get_optimal_model_name()
     
     prompt = """
     Analyze this medical bill image.
     
     1. CLASSIFY the page into exactly one of these types:
-       - "Pharmacy": Lists medicines/drugs with batch numbers.
-       - "Final Bill": Summary totals like 'Room Charges', 'Grand Total'.
-       - "Bill Detail": Line-item breakdown of services.
+       - "Pharmacy": If it lists medicines/drugs with batch numbers.
+       - "Final Bill": If it shows summary totals like 'Room Charges', 'Grand Total'.
+       - "Bill Detail": For standard line-item breakdowns.
     
     2. EXTRACT all line items.
        - Fields: item_name, item_amount, item_rate, item_quantity.
        - Use null if missing.
-       - Correct typos (e.g. 'Consutaion' -> 'Consultation').
+       - Correct typos.
 
     RETURN STRICT JSON:
     {
@@ -101,7 +101,6 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
 
             parsed = json.loads(clean_json(response.text))
             
-            # Handle list vs object response
             if isinstance(parsed, list):
                 return "Bill Detail", parsed, usage
             
@@ -111,10 +110,9 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
             return p_type, items, usage
 
         except Exception as e:
-            # RATE LIMIT HANDLING FOR PARALLEL WORKERS
             if "429" in str(e) and attempt < max_retries - 1:
-                # Add random jitter (e.g., 5.1s, 5.8s) so threads don't retry at exact same time
-                sleep_time = (5 * (attempt + 1)) + random.uniform(0.1, 1.5)
+                # Optimized Jitter for 5 workers
+                sleep_time = (2 * (attempt + 1)) + random.uniform(0.1, 2.0)
                 logger.warning(f"Quota 429. Retrying in {sleep_time:.2f}s...")
                 time.sleep(sleep_time)
                 continue
