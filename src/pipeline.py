@@ -57,18 +57,20 @@ def process_page_task(page_num: int, file_path: str, is_pdf: bool) -> dict:
     try:
         # 1. GET IMAGE
         if is_pdf:
+            # Thread_count=1 prevents poppler from spawning its own threads
             images = convert_from_path(
                 file_path, 
                 first_page=page_num, 
                 last_page=page_num, 
                 fmt='jpeg', 
-                thread_count=1
+                thread_count=1 
             )
             if not images:
                 raise ValueError("PDF Page conversion returned no images")
             
             temp_jpeg_path = optimize_image(images[0], is_obj=True)
             
+            # Aggressively free memory
             del images
             gc.collect()
         else:
@@ -83,7 +85,6 @@ def process_page_task(page_num: int, file_path: str, is_pdf: bool) -> dict:
         # --- FLATTENING LOGIC (Fix for nested/side-by-side bills) ---
         flattened_items = []
         for item in raw_items:
-            # Check if this "item" is actually a container for a sub-bill
             if "items" in item and isinstance(item["items"], list):
                 flattened_items.extend(item["items"])
             else:
@@ -98,7 +99,6 @@ def process_page_task(page_num: int, file_path: str, is_pdf: bool) -> dict:
         final_clean_items = []
         for item in items:
             name = str(item.get("item_name", "")).strip()
-            # Skip empty wrappers
             if not name and item.get("item_amount", 0) == 0:
                 continue
                 
@@ -149,7 +149,8 @@ def process_bill(file_url: str) -> dict:
             is_pdf = True
             info = pdfinfo_from_path(local_path)
             max_pages = info["Pages"]
-            logger.info(f"PDF has {max_pages} pages. Launching 10 parallel workers...")
+            # UPDATED LOG MESSAGE
+            logger.info(f"PDF has {max_pages} pages. Launching 6 parallel workers...")
             for i in range(1, max_pages + 1):
                 tasks.append(i)
         elif ext in ['.png', '.jpg', '.jpeg', '.webp']:
@@ -158,9 +159,11 @@ def process_bill(file_url: str) -> dict:
         else:
             raise ValueError(f"Unsupported file type: {ext}")
 
-        # --- OPTIMIZATION: 10 WORKERS ---
-        # Safe for 2,000 RPM Limit
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # --- MEMORY SAFETY UPDATE: 6 WORKERS ---
+        # 10 workers caused OOM (Out of Memory).
+        # 5 workers was stable.
+        # 6 is a safe middle ground.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
             future_to_page = {
                 executor.submit(process_page_task, p_num, local_path, is_pdf): p_num 
                 for p_num in tasks
@@ -175,10 +178,12 @@ def process_bill(file_url: str) -> dict:
                 for k in total_usage:
                     total_usage[k] += u.get(k, 0)
                 
-                # Cleanup fast
                 if res["temp_path"] and os.path.exists(res["temp_path"]):
                     try: os.remove(res["temp_path"])
                     except: pass
+                
+                # Force GC after every page to prevent leaks
+                gc.collect() 
 
         final_results.sort(key=lambda x: int(x["page_no"]))
         
