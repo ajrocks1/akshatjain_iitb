@@ -57,13 +57,13 @@ def clean_json(text: str) -> str:
 def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Dict[str, int]]:
     model_name = get_optimal_model_name()
     
-    # --- JUDGE-COMPLIANT PROMPT ---
+    # --- FINAL OPTIMIZED PROMPT ---
     prompt = """
     Act as an Expert Pharmacist and Handwriting Analyst. Analyze this medical bill image.
 
     ### 1. ROBUSTNESS RULES
     - The image may be HANDWRITTEN and messy. Use context to identify medicine names (e.g. 'Pantaviz', 'Divalgress', 'Augmentin').
-    - If the image contains TWO separate receipts (left and right), EXTRACT items from BOTH into a SINGLE list.
+    - If the image contains TWO separate receipts (left and right), EXTRACT items from BOTH.
     - IGNORE purely summary rows like "Total", "Grand Total", "Balance", "Round Off".
 
     ### 2. CLASSIFY THE PAGE TYPE (Pick exactly one):
@@ -84,11 +84,21 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
 
     ### 3. EXTRACTION RULES (Strict Judge Compliance)
     - Fields: item_name, item_amount, item_rate, item_quantity.
+    
+    - **NO CATEGORY HEADERS (Vertical Double Counting)**:
+      - **DO NOT extract Section Headers** (e.g., "Consultation: 1950", "Lab Services") if they just summarize the items below them.
+      - Only extract the **child line items**.
+
+    - **COMBINE SPLIT ROWS (Horizontal Double Counting)**:
+      - If a single row has a Code (e.g. '999311') and a Description (e.g. 'OP Consultation'), **COMBINE THEM** into one item name. 
+      - Do not create two separate items for the same line.
+      
     - **RATE HANDLING**: 
-      - If the 'Rate' column is missing, empty, or not visible in the image: **RETURN 0**.
-      - **DO NOT CALCULATE IT**. Do not divide Amount by Quantity.
+      - If 'Rate' column is missing, empty, or not visible: **RETURN 0**. 
+      - **DO NOT CALCULATE IT**.
+      
     - **Qty handling**: '10)' or '10.' means 10.
-    - **Typo Correction**: Fix spelling errors in medicine names based on standard Indian brands.
+    - **Typo Correction**: Fix spelling errors in medicine names.
 
     RETURN STRICT JSON:
     {
@@ -111,7 +121,7 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
     for attempt in range(max_retries):
         try:
             model = GenerativeModel(model_name)
-            # Temp 0.0 ensures it follows the "Return 0" rule strictly
+            # Temperature 0.0 ensures Strict Compliance (No creative guessing)
             response = model.generate_content(
                 [prompt, img], 
                 generation_config={
