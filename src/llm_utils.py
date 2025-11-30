@@ -28,13 +28,17 @@ def get_optimal_model_name() -> str:
     try:
         available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        # PRIORITY: 1.5 Flash 8B (Fastest) -> 1.5 Flash -> 2.0 Flash
+        # PRIORITIES BASED ON YOUR RATE LIMIT TABLE
+        # 1. Gemini 2.0 Flash: 2,000 RPM (Best Balance of Speed/Quality)
+        # 2. Gemini 2.5 Flash-Lite: 4,000 RPM (Max Speed Backup)
+        # 3. Gemini 2.5 Flash: 1,000 RPM (Quality Backup)
         priorities = [
-            "models/gemini-1.5-flash-8b",     # FASTEST
-            "models/gemini-1.5-flash-8b-001",
-            "models/gemini-1.5-flash",
             "models/gemini-2.0-flash-001",
             "models/gemini-2.0-flash",
+            "models/gemini-2.5-flash-lite-preview",
+            "models/gemini-2.5-flash-lite",
+            "models/gemini-2.5-flash",
+            "models/gemini-1.5-flash"
         ]
         
         for p in priorities:
@@ -43,7 +47,15 @@ def get_optimal_model_name() -> str:
                 logger.info(f"Selected High-Speed Model: {p}")
                 return p
         
-        # Fallback
+        # Intelligent Fallback: Look for any "2.0-flash" or "flash-lite"
+        for m in available:
+            if "2.0-flash" in m and "exp" not in m:
+                _CACHED_MODEL_NAME = m
+                return m
+            if "flash-lite" in m:
+                _CACHED_MODEL_NAME = m
+                return m
+
         _CACHED_MODEL_NAME = "models/gemini-1.5-flash"
         return _CACHED_MODEL_NAME
 
@@ -53,34 +65,31 @@ def get_optimal_model_name() -> str:
 def clean_json(text: str) -> str:
     return re.sub(r'^```(json)?|```$', '', text.strip(), flags=re.MULTILINE).strip()
 
-# --- ASYNC FUNCTION ---
 async def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Dict[str, int]]:
     model_name = get_optimal_model_name()
     
+    # --- HYPER-TUNED PROMPT FOR ACCURACY & SPEED ---
     prompt = """
-    Analyze this medical bill image and extract data.
+    Analyze this medical bill.
     
-    ### STEP 1: CLASSIFY PAGE TYPE (Check content nature)
-    1. "Pharmacy": Medicines, drugs, injections, batch numbers.
-    2. "Final Bill": Consolidated summary, Room Charges, Grand Total.
-    3. "Bill Detail": Granular list of tests, services, dates.
+    ### 1. CLASSIFY PAGE TYPE (Strict Visual Rules)
+    - "Pharmacy": Contains medicines, batch #, expiry, "Sch", "Mfg".
+    - "Final Bill": Summary of charges, "Room Rent", "Grand Total", "Net Amt".
+    - "Bill Detail": Line-item breakdown of services/tests, "Test Particulars".
 
-    ### STEP 2: EXTRACT ITEMS
-    - Extract: item_name, item_amount, item_rate, item_quantity.
-    - Use null for missing fields.
-    - FLATTEN LISTS: If multiple bills exist, merge all items into one single 'items' list. Do not nest.
+    ### 2. EXTRACT ITEMS
+    - Fields: item_name, item_amount, item_rate, item_quantity.
+    - Rules: Use null for missing data. Fix typos.
+    - FLATTEN: If multiple bills appear on one page, merge ALL items into a single list. Do not nest.
 
     RETURN STRICT JSON:
-    {
-        "page_type": "...",
-        "items": [ ... ]
-    }
+    { "page_type": "...", "items": [ ... ] }
     """
     
     base_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
-    # Load image in a thread to avoid blocking loop
     try:
+        # Offload image loading to thread to prevent blocking async loop
         img = await asyncio.to_thread(PIL.Image.open, image_path)
     except Exception as e:
         logger.error(f"Could not load image: {e}")
@@ -91,7 +100,7 @@ async def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any
         try:
             model = GenerativeModel(model_name)
             
-            # --- ASYNC CALL ---
+            # Async Generation
             response = await model.generate_content_async(
                 [prompt, img], 
                 generation_config={"response_mime_type": "application/json"}
@@ -107,7 +116,7 @@ async def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any
 
             parsed = json.loads(clean_json(response.text))
             
-            # Logic to extract & flatten
+            # --- FLATTENING LOGIC ---
             raw_items = []
             p_type = "Bill Detail"
 
@@ -136,9 +145,10 @@ async def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any
                 continue
 
             if "429" in error_str and attempt < max_retries - 1:
-                sleep_time = (2 * (attempt + 1)) + random.uniform(0.1, 1.0)
+                # With 2000 RPM, we can be aggressive. Short sleep.
+                sleep_time = (1.5 * (attempt + 1)) + random.uniform(0.1, 0.5)
                 logger.warning(f"Quota 429. Retrying in {sleep_time:.2f}s...")
-                await asyncio.sleep(sleep_time) # Async sleep
+                await asyncio.sleep(sleep_time)
                 continue
                 
             logger.error(f"Vision LLM Failed: {e}")
