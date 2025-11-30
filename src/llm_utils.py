@@ -27,13 +27,12 @@ def get_optimal_model_name() -> str:
     try:
         available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        # UPDATED PRIORITIES BASED ON YOUR RATE LIMIT SCREENSHOTS
         priorities = [
-            "models/gemini-2.0-flash-001",  # STABLE 2.0 (2,000 RPM)
-            "models/gemini-2.0-flash",      # Alias
-            "models/gemini-2.5-flash",      # 1,000 RPM
-            "models/gemini-2.5-flash-lite", # 4,000 RPM (Fastest, but maybe less accurate)
-            "models/gemini-1.5-flash",      # Deprecated fallback
+            "models/gemini-2.0-flash-001",
+            "models/gemini-2.0-flash",
+            "models/gemini-2.5-flash",
+            "models/gemini-2.5-flash-lite",
+            "models/gemini-1.5-flash",
         ]
         
         for p in priorities:
@@ -42,13 +41,11 @@ def get_optimal_model_name() -> str:
                 logger.info(f"Selected High-Speed Model: {p}")
                 return p
         
-        # Fallback search if exact names don't match
         for m in available:
-            if "2.0-flash" in m and "exp" not in m: # Avoid experimental
+            if "2.0-flash" in m and "exp" not in m:
                 _CACHED_MODEL_NAME = m
                 return m
 
-        # Ultimate fallback
         _CACHED_MODEL_NAME = "models/gemini-1.5-flash"
         return _CACHED_MODEL_NAME
 
@@ -61,23 +58,42 @@ def clean_json(text: str) -> str:
 def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Dict[str, int]]:
     model_name = get_optimal_model_name()
     
+    # --- IMPROVED PROMPT WITH YOUR SCREENSHOT LOGIC ---
     prompt = """
-    Analyze this medical bill image.
-    
-    1. CLASSIFY the page into exactly one of these types:
-       - "Pharmacy": If it lists medicines/drugs with batch numbers.
-       - "Final Bill": If it shows summary totals like 'Room Charges', 'Grand Total'.
-       - "Bill Detail": For standard line-item breakdowns.
-    
-    2. EXTRACT all line items.
-       - Fields: item_name, item_amount, item_rate, item_quantity.
-       - Use null if missing.
-       - Correct typos.
+    Analyze this medical bill image. 
 
-    RETURN STRICT JSON:
+    1. HANDLING SIDE-BY-SIDE PAGES:
+       - If the image contains TWO separate receipts (left and right), EXTRACT items from BOTH.
+       - MERGE them into a SINGLE flat list.
+       - DO NOT create nested lists (e.g., do not make a list of bills).
+
+    2. CLASSIFY THE PAGE TYPE (Pick exactly one):
+       - "Pharmacy": 
+         * Look for keywords: "Pharmacy", "Chemist", "Druggist", "Medical Store".
+         * Look for columns: "Batch", "B.No", "Expiry", "Exp", "Mfg".
+         * Items are specific drugs (e.g., "Tab", "Cap", "Inj", "Syp").
+       
+       - "Final Bill": 
+         * Look for SUMMARY headers: "Room & Nursing Charges", "Professional Fees", "Bill Summary".
+         * It shows CATEGORY TOTALS (e.g., "Lab Charges: 5000", "Radiology: 2000").
+         * Usually has a "Grand Total" or "Net Amount" at the bottom.
+       
+       - "Bill Detail": 
+         * Look for detailed breakdowns of SERVICES (not just medicines).
+         * Look for "Test Particulars", "Service Name", or specific dates per line item.
+         * Examples: "Urine Routine", "X-Ray Chest", "Gyn Delivery", "CBC".
+
+    3. EXTRACT LINE ITEMS:
+       - Fields: item_name, item_amount, item_rate, item_quantity.
+       - If a column is missing, use null or 0.
+       - Correct typos in medical names.
+
+    RETURN STRICT JSON ONLY:
     {
-        "page_type": "...",
-        "items": [ ... ]
+        "page_type": "Pharmacy | Final Bill | Bill Detail",
+        "items": [ 
+            { "item_name": "...", "item_quantity": 0, "item_rate": 0, "item_amount": 0 }
+        ]
     }
     """
     
@@ -89,7 +105,7 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
         logger.error(f"Could not load image: {e}")
         return "Bill Detail", [], base_usage
 
-    max_retries = 5
+    max_retries = 3
     for attempt in range(max_retries):
         try:
             model = GenerativeModel(model_name)
@@ -108,6 +124,7 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
 
             parsed = json.loads(clean_json(response.text))
             
+            # Direct list handling (Model sometimes returns just the list)
             if isinstance(parsed, list):
                 return "Bill Detail", parsed, usage
             
@@ -117,24 +134,7 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
             return p_type, items, usage
 
         except Exception as e:
-            error_str = str(e)
+            logger.warning(f"Attempt {attempt+1} failed: {e}")
+            time.sleep(1)
             
-            # 404 Handler (Just in case)
-            if "404" in error_str:
-                logger.warning(f"Model {model_name} 404. Resetting cache...")
-                global _CACHED_MODEL_NAME
-                _CACHED_MODEL_NAME = None 
-                continue
-
-            if "429" in error_str and attempt < max_retries - 1:
-                # With 2000 RPM, 429s should be rare, so we can lower the backoff
-                sleep_time = (2 * (attempt + 1)) + random.uniform(0.1, 1.0)
-                logger.warning(f"Quota 429. Retrying in {sleep_time:.2f}s...")
-                time.sleep(sleep_time)
-                continue
-                
-            logger.error(f"Vision LLM Failed: {e}")
-            raise
-    
-    # Safety return
     return "Bill Detail", [], base_usage
