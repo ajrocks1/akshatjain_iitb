@@ -27,7 +27,7 @@ def get_optimal_model_name() -> str:
     try:
         available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        # STRATEGY: Accuracy First
+        # STRATEGY: Accuracy First (Gemini 2.0 Flash is best for handwriting)
         priorities = [
             "models/gemini-2.0-flash-001",
             "models/gemini-2.0-flash",
@@ -57,12 +57,12 @@ def clean_json(text: str) -> str:
 def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Dict[str, int]]:
     model_name = get_optimal_model_name()
     
-    # --- FINAL CORRECTED PROMPT ---
+    # --- FINAL PROMPT WITH SINGLE COLUMN LOGIC ---
     prompt = """
     Act as an Expert Pharmacist and Handwriting Analyst. Analyze this medical bill image.
 
     ### 1. ROBUSTNESS RULES
-    - The image may be HANDWRITTEN and messy. Use context to identify medicine names (e.g. 'Pantaviz', 'Divalgress', 'Augmentin').
+    - The image may be HANDWRITTEN and messy. Use context to identify medicine names.
     - If the image contains TWO separate receipts (left and right), EXTRACT items from BOTH.
     - IGNORE purely summary rows like "Total", "Grand Total", "Balance", "Round Off".
 
@@ -70,6 +70,7 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
        - "Pharmacy": 
          * Keywords: "Pharmacy", "Chemist", "Druggist", "Medical Store".
          * Columns: "Batch", "B.No", "Expiry", "Exp", "Mfg".
+         * Items are specific drugs (e.g., "Tab", "Cap", "Inj", "Syp").
        
        - "Final Bill": 
          * Keywords: "Room & Nursing Charges", "Professional Fees", "Bill Summary", "IP Bill", "Advance".
@@ -82,7 +83,15 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
     ### 3. EXTRACTION RULES (Strict Judge Compliance)
     - Fields: item_name, item_amount, item_rate, item_quantity.
     
-    - **QUANTITY HANDLING (Pack vs Total)**:
+    - **RATE HANDLING (Critical)**:
+      - **Rule:** If the bill has only ONE monetary column (often labeled "Rs.", "Amount", or "Price") next to the items:
+      - Treat that value as the **item_amount** (Total for that row).
+      - Set **item_rate** to **0**.
+      - **DO NOT** copy the Amount into the Rate field.
+      - If 'Rate' column is explicitly missing or empty: **RETURN 0**. 
+      - **DO NOT CALCULATE IT**.
+
+    - **QUANTITY HANDLING**:
       - If Quantity is written as **"3 x 10"** or **"2 x 15"**, extract ONLY the **First Number** (the number of packs).
       - Example: "3 x 10" -> Quantity: 3.
       - Example: "2 x 15" -> Quantity: 2.
@@ -93,10 +102,6 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
 
     - **COMBINE SPLIT ROWS**:
       - If a single row has a Code and a Description, **COMBINE THEM** into one item name.
-      
-    - **RATE HANDLING**: 
-      - If 'Rate' column is missing, empty, or not visible: **RETURN 0**. 
-      - **DO NOT CALCULATE IT**.
       
     - **Typo Correction**: Fix spelling errors in medicine names.
 
@@ -121,6 +126,7 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
     for attempt in range(max_retries):
         try:
             model = GenerativeModel(model_name)
+            # Temperature 0.0 + Strict Prompt = High Accuracy
             response = model.generate_content(
                 [prompt, img], 
                 generation_config={
