@@ -27,7 +27,7 @@ def get_optimal_model_name() -> str:
     try:
         available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        # STRATEGY: Accuracy First (Gemini 2.0 Flash is best for handwriting)
+        # STRATEGY: Accuracy First
         priorities = [
             "models/gemini-2.0-flash-001",
             "models/gemini-2.0-flash",
@@ -57,7 +57,7 @@ def clean_json(text: str) -> str:
 def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Dict[str, int]]:
     model_name = get_optimal_model_name()
     
-    # --- FINAL OPTIMIZED PROMPT ---
+    # --- FINAL CORRECTED PROMPT ---
     prompt = """
     Act as an Expert Pharmacist and Handwriting Analyst. Analyze this medical bill image.
 
@@ -68,36 +68,36 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
 
     ### 2. CLASSIFY THE PAGE TYPE (Pick exactly one):
        - "Pharmacy": 
-         * Look for keywords: "Pharmacy", "Chemist", "Druggist", "Medical Store".
-         * Look for columns: "Batch", "B.No", "Expiry", "Exp", "Mfg".
-         * Items are specific drugs (e.g., "Tab", "Cap", "Inj", "Syp").
+         * Keywords: "Pharmacy", "Chemist", "Druggist", "Medical Store".
+         * Columns: "Batch", "B.No", "Expiry", "Exp", "Mfg".
        
        - "Final Bill": 
-         * Look for SUMMARY headers: "Room & Nursing Charges", "Professional Fees", "Bill Summary", "IP Bill", "Advance".
-         * It shows CATEGORY TOTALS (e.g., "Lab Charges: 5000", "Radiology: 2000").
-         * Usually has a "Grand Total" or "Net Amount" at the bottom.
+         * Keywords: "Room & Nursing Charges", "Professional Fees", "Bill Summary", "IP Bill", "Advance".
+         * Shows CATEGORY TOTALS. Usually has a "Grand Total" at the bottom.
        
        - "Bill Detail": 
-         * Look for detailed breakdowns of SERVICES (not just medicines).
-         * Look for "Test Particulars", "Service Name", or specific dates per line item.
-         * Examples: "Urine Routine", "X-Ray Chest", "Gyn Delivery", "CBC".
+         * Detailed breakdowns of SERVICES (e.g. "Urine Routine", "X-Ray Chest").
+         * Dates listed per line item.
 
     ### 3. EXTRACTION RULES (Strict Judge Compliance)
     - Fields: item_name, item_amount, item_rate, item_quantity.
     
-    - **NO CATEGORY HEADERS (Vertical Double Counting)**:
-      - **DO NOT extract Section Headers** (e.g., "Consultation: 1950", "Lab Services") if they just summarize the items below them.
-      - Only extract the **child line items**.
+    - **QUANTITY HANDLING (Pack vs Total)**:
+      - If Quantity is written as **"3 x 10"** or **"2 x 15"**, extract ONLY the **First Number** (the number of packs).
+      - Example: "3 x 10" -> Quantity: 3.
+      - Example: "2 x 15" -> Quantity: 2.
+      - Remove symbols like ')' or '.' (e.g., "10)" -> 10).
 
-    - **COMBINE SPLIT ROWS (Horizontal Double Counting)**:
-      - If a single row has a Code (e.g. '999311') and a Description (e.g. 'OP Consultation'), **COMBINE THEM** into one item name. 
-      - Do not create two separate items for the same line.
+    - **NO CATEGORY HEADERS**:
+      - **DO NOT extract Section Headers** (e.g., "Consultation: 1950") if they just summarize the items below them.
+
+    - **COMBINE SPLIT ROWS**:
+      - If a single row has a Code and a Description, **COMBINE THEM** into one item name.
       
     - **RATE HANDLING**: 
       - If 'Rate' column is missing, empty, or not visible: **RETURN 0**. 
       - **DO NOT CALCULATE IT**.
       
-    - **Qty handling**: '10)' or '10.' means 10.
     - **Typo Correction**: Fix spelling errors in medicine names.
 
     RETURN STRICT JSON:
@@ -121,7 +121,6 @@ def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Di
     for attempt in range(max_retries):
         try:
             model = GenerativeModel(model_name)
-            # Temperature 0.0 ensures Strict Compliance (No creative guessing)
             response = model.generate_content(
                 [prompt, img], 
                 generation_config={
