@@ -10,7 +10,6 @@ import time
 import PIL.Image
 
 def download_url_to_file(url):
-    """Downloads file and preserves extension."""
     resp = requests.get(url, stream=True, timeout=30)
     resp.raise_for_status()
     path_no_query = url.split('?')[0]
@@ -23,24 +22,16 @@ def download_url_to_file(url):
     return tmp.name
 
 def optimize_image(image_path_or_obj, is_obj=False):
-    """
-    Resizes image to max 1024px and saves as optimized JPEG.
-    Returns path to temp JPEG.
-    """
     try:
         if is_obj:
             img = image_path_or_obj
         else:
             img = PIL.Image.open(image_path_or_obj)
             
-        # Resize to speed up processing (Max 1024x1024)
         img.thumbnail((1024, 1024))
-        
-        # Convert to RGB (in case of RGBA png)
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
             
-        # Save as compressed JPEG
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
             img.save(tmp.name, format='JPEG', quality=85)
             return tmp.name
@@ -49,59 +40,62 @@ def optimize_image(image_path_or_obj, is_obj=False):
         return None
 
 def process_page_task(page_num: int, file_path: str, is_pdf: bool) -> dict:
-    """
-    Worker: Converts -> Resizes -> Extracts.
-    """
     start_time = time.time()
     temp_jpeg_path = None
     
     try:
-        # 1. GET IMAGE
         if is_pdf:
-            # Convert PDF Page
             images = convert_from_path(
-                file_path, 
-                first_page=page_num, 
-                last_page=page_num, 
-                fmt='jpeg', 
-                thread_count=1
+                file_path, first_page=page_num, last_page=page_num, fmt='jpeg', thread_count=1
             )
-            if not images:
-                raise ValueError("PDF Page conversion returned no images")
-            
-            # Optimize immediately
+            if not images: raise ValueError("PDF Page conversion returned no images")
             temp_jpeg_path = optimize_image(images[0], is_obj=True)
-            
-            # Free RAM
             del images
             gc.collect()
         else:
-            # Optimize existing image
             temp_jpeg_path = optimize_image(file_path, is_obj=False)
 
-        if not temp_jpeg_path:
-            raise ValueError("Failed to prepare image for Vision AI")
+        if not temp_jpeg_path: raise ValueError("Failed to prepare image")
 
-        # 2. EXTRACT WITH AI
-        p_type, items, usage = parse_items_with_llm(temp_jpeg_path)
+        # 1. EXTRACT FROM AI
+        p_type, raw_items, usage = parse_items_with_llm(temp_jpeg_path)
+        
+        # 2. FLATTEN NESTED STRUCTURES (The Fix for Side-by-Side Bills)
+        flattened_items = []
+        for item in raw_items:
+            # If the model put a bill inside an item (nested list), pull it out
+            if "items" in item and isinstance(item["items"], list):
+                flattened_items.extend(item["items"])
+            else:
+                flattened_items.append(item)
+        
+        items = flattened_items
         
         duration = time.time() - start_time
         logger.info(f"Page {page_num} Done in {duration:.1f}s. Items: {len(items)}")
 
-        # 3. NORMALIZE
+        # 3. NORMALIZE & CLEANUP
+        final_clean_items = []
         for item in items:
-            item["item_name"] = str(item.get("item_name", "")).strip()
+            # Remove empty/junk items
+            name = str(item.get("item_name", "")).strip()
+            if not name and item.get("item_amount", 0) == 0:
+                continue
+
+            clean_item = {"item_name": name}
             for field in ["item_quantity", "item_rate", "item_amount"]:
                 try:
                     val = item.get(field)
-                    item[field] = float(val) if val is not None else 0.0
+                    clean_item[field] = float(val) if val is not None else 0.0
                 except:
-                    item[field] = 0.0
+                    clean_item[field] = 0.0
+            
+            final_clean_items.append(clean_item)
 
         return {
             "page_no": str(page_num),
             "page_type": p_type,
-            "bill_items": items,
+            "bill_items": final_clean_items,
             "token_usage": usage,
             "temp_path": temp_jpeg_path
         }
@@ -135,7 +129,7 @@ def process_bill(file_url: str) -> dict:
             is_pdf = True
             info = pdfinfo_from_path(local_path)
             max_pages = info["Pages"]
-            logger.info(f"PDF has {max_pages} pages. Launching 5 parallel workers...")
+            logger.info(f"PDF has {max_pages} pages. Launching workers...")
             for i in range(1, max_pages + 1):
                 tasks.append(i)
         elif ext in ['.png', '.jpg', '.jpeg', '.webp']:
@@ -144,8 +138,7 @@ def process_bill(file_url: str) -> dict:
         else:
             raise ValueError(f"Unsupported file type: {ext}")
 
-        # --- OPTIMIZATION: 5 WORKERS ---
-        # Smaller images = Less RAM = More Workers safe
+        # Limit max workers to 5 to avoid OOM
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             future_to_page = {
                 executor.submit(process_page_task, p_num, local_path, is_pdf): p_num 
@@ -161,7 +154,7 @@ def process_bill(file_url: str) -> dict:
                 for k in total_usage:
                     total_usage[k] += u.get(k, 0)
                 
-                # Cleanup fast
+                # Cleanup temp image immediately
                 if res["temp_path"] and os.path.exists(res["temp_path"]):
                     try: os.remove(res["temp_path"])
                     except: pass
