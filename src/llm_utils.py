@@ -27,12 +27,13 @@ def get_optimal_model_name() -> str:
     try:
         available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
+        # PRIORITY LIST (Optimized for 2,000 RPM)
         priorities = [
-            "models/gemini-2.0-flash-001",
-            "models/gemini-2.0-flash",
-            "models/gemini-2.5-flash",
-            "models/gemini-2.5-flash-lite",
-            "models/gemini-1.5-flash",
+            "models/gemini-2.0-flash-001",  # 2,000 RPM (Fastest & Accurate)
+            "models/gemini-2.0-flash",      # Alias
+            "models/gemini-2.5-flash-lite", # 4,000 RPM (Fallback Speed)
+            "models/gemini-2.5-flash",      # 1,000 RPM (Slower)
+            "models/gemini-1.5-flash",      # Deprecated
         ]
         
         for p in priorities:
@@ -41,6 +42,7 @@ def get_optimal_model_name() -> str:
                 logger.info(f"Selected High-Speed Model: {p}")
                 return p
         
+        # Fallback search
         for m in available:
             if "2.0-flash" in m and "exp" not in m:
                 _CACHED_MODEL_NAME = m
@@ -58,7 +60,6 @@ def clean_json(text: str) -> str:
 def parse_items_with_llm(image_path: str) -> Tuple[str, List[Dict[str, Any]], Dict[str, int]]:
     model_name = get_optimal_model_name()
     
-    # --- IMPROVED PROMPT WITH YOUR SCREENSHOT LOGIC ---
     prompt = """
     Analyze this medical bill image. 
 
