@@ -5,11 +5,12 @@ from pdf2image import convert_from_path, pdfinfo_from_path
 from src.llm_utils import parse_items_with_llm
 from loguru import logger
 import gc
-import asyncio
+import concurrent.futures
 import time
 import PIL.Image
 
 def download_url_to_file(url):
+    """Downloads file and preserves extension."""
     resp = requests.get(url, stream=True, timeout=30)
     resp.raise_for_status()
     path_no_query = url.split('?')[0]
@@ -22,62 +23,67 @@ def download_url_to_file(url):
     return tmp.name
 
 def optimize_image(image_path_or_obj, is_obj=False):
+    """
+    Resizes image to max 1024px and saves as optimized JPEG.
+    Returns path to temp JPEG.
+    """
     try:
         if is_obj:
             img = image_path_or_obj
         else:
             img = PIL.Image.open(image_path_or_obj)
             
-        # Max 1024px is sweet spot for speed/accuracy
+        # Resize to speed up processing (Max 1024x1024)
         img.thumbnail((1024, 1024))
         
+        # Convert to RGB (in case of RGBA png)
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
             
+        # Save as compressed JPEG
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-            img.save(tmp.name, format='JPEG', quality=80) # Slightly lower quality for speed
+            img.save(tmp.name, format='JPEG', quality=85)
             return tmp.name
     except Exception as e:
         logger.error(f"Image optimization failed: {e}")
         return None
 
-# --- ASYNC WORKER ---
-async def process_page_task(page_num: int, file_path: str, is_pdf: bool) -> dict:
+def process_page_task(page_num: int, file_path: str, is_pdf: bool) -> dict:
+    """
+    Worker: Converts -> Resizes -> Extracts.
+    """
     start_time = time.time()
     temp_jpeg_path = None
     
     try:
-        # 1. CONVERT (Run in Thread Pool to avoid blocking async loop)
+        # 1. GET IMAGE
         if is_pdf:
-            def convert():
-                return convert_from_path(
-                    file_path, 
-                    first_page=page_num, 
-                    last_page=page_num, 
-                    fmt='jpeg', 
-                    dpi=150,  # OPTIMIZATION: Lower DPI = Much Faster
-                    thread_count=1
-                )
-            
-            images = await asyncio.to_thread(convert)
-            
+            # Convert PDF Page
+            images = convert_from_path(
+                file_path, 
+                first_page=page_num, 
+                last_page=page_num, 
+                fmt='jpeg', 
+                thread_count=1
+            )
             if not images:
-                raise ValueError("No images from PDF conversion")
+                raise ValueError("PDF Page conversion returned no images")
             
-            # Optimize in thread
-            temp_jpeg_path = await asyncio.to_thread(optimize_image, images[0], True)
+            # Optimize immediately
+            temp_jpeg_path = optimize_image(images[0], is_obj=True)
             
+            # Free RAM
             del images
             gc.collect()
         else:
-            temp_jpeg_path = await asyncio.to_thread(optimize_image, file_path, False)
+            # Optimize existing image
+            temp_jpeg_path = optimize_image(file_path, is_obj=False)
 
         if not temp_jpeg_path:
-            raise ValueError("Failed to prepare image")
+            raise ValueError("Failed to prepare image for Vision AI")
 
-        # 2. EXTRACT (Async AI Call)
-        # This is where the magic happens - waiting doesn't block CPU
-        p_type, items, usage = await parse_items_with_llm(temp_jpeg_path)
+        # 2. EXTRACT WITH AI
+        p_type, items, usage = parse_items_with_llm(temp_jpeg_path)
         
         duration = time.time() - start_time
         logger.info(f"Page {page_num} Done in {duration:.1f}s. Items: {len(items)}")
@@ -92,16 +98,12 @@ async def process_page_task(page_num: int, file_path: str, is_pdf: bool) -> dict
                 except:
                     item[field] = 0.0
 
-        # Cleanup immediately
-        if temp_jpeg_path and os.path.exists(temp_jpeg_path):
-            try: os.remove(temp_jpeg_path)
-            except: pass
-
         return {
             "page_no": str(page_num),
             "page_type": p_type,
             "bill_items": items,
-            "token_usage": usage
+            "token_usage": usage,
+            "temp_path": temp_jpeg_path
         }
 
     except Exception as e:
@@ -110,21 +112,14 @@ async def process_page_task(page_num: int, file_path: str, is_pdf: bool) -> dict
             "page_no": str(page_num),
             "page_type": "Bill Detail",
             "bill_items": [],
-            "token_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+            "token_usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+            "temp_path": temp_jpeg_path
         }
 
-# --- MAIN ENTRY POINT (Called by api_server) ---
-# Note: Since api_server calls this with `asyncio.to_thread`, 
-# we need to run the async loop inside here.
 def process_bill(file_url: str) -> dict:
-    # Helper to run async code from sync wrapper
-    return asyncio.run(process_bill_async(file_url))
-
-async def process_bill_async(file_url: str) -> dict:
     start_run = time.time()
-    logger.info(f"Starting ASYNC processing for URL: {file_url}")
-    
-    local_path = await asyncio.to_thread(download_url_to_file, file_url)
+    logger.info(f"Starting optimized bill processing for URL: {file_url}")
+    local_path = download_url_to_file(file_url)
     ext = os.path.splitext(local_path)[1].lower()
 
     final_results = []
@@ -140,35 +135,36 @@ async def process_bill_async(file_url: str) -> dict:
             is_pdf = True
             info = pdfinfo_from_path(local_path)
             max_pages = info["Pages"]
-            logger.info(f"PDF has {max_pages} pages. Launching ASYNC tasks...")
-            
-            # Create a task for EVERY page immediately
-            # Async allows massive concurrency (IO bound)
-            # We limit to 5 concurrent conversions via Semaphore to protect RAM
-            sem = asyncio.Semaphore(5) 
-            
-            async def bounded_process(p_num):
-                async with sem:
-                    return await process_page_task(p_num, local_path, True)
-
+            logger.info(f"PDF has {max_pages} pages. Launching 5 parallel workers...")
             for i in range(1, max_pages + 1):
-                tasks.append(bounded_process(i))
-        
+                tasks.append(i)
         elif ext in ['.png', '.jpg', '.jpeg', '.webp']:
-            tasks.append(process_page_task(1, local_path, False))
+            logger.info("Processing single image...")
+            tasks.append(1)
         else:
             raise ValueError(f"Unsupported file type: {ext}")
 
-        # RUN EVERYTHING AT ONCE
-        results = await asyncio.gather(*tasks)
-        final_results = list(results)
-
-        # Aggregate Results
-        for res in final_results:
-            total_items += len(res["bill_items"])
-            u = res["token_usage"]
-            for k in total_usage:
-                total_usage[k] += u.get(k, 0)
+        # --- OPTIMIZATION: 5 WORKERS ---
+        # Smaller images = Less RAM = More Workers safe
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_page = {
+                executor.submit(process_page_task, p_num, local_path, is_pdf): p_num 
+                for p_num in tasks
+            }
+            
+            for future in concurrent.futures.as_completed(future_to_page):
+                res = future.result()
+                final_results.append(res)
+                
+                total_items += len(res["bill_items"])
+                u = res["token_usage"]
+                for k in total_usage:
+                    total_usage[k] += u.get(k, 0)
+                
+                # Cleanup fast
+                if res["temp_path"] and os.path.exists(res["temp_path"]):
+                    try: os.remove(res["temp_path"])
+                    except: pass
 
         final_results.sort(key=lambda x: int(x["page_no"]))
         
